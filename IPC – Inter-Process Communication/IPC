@@ -1,1 +1,294 @@
+IPC – Inter-Process Communication
+2.1. Tổng quan về IPC
+IPC (Inter-Process Communication) là tập hợp các cơ chế do hệ điều hành cung cấp để cho phép các process trao đổi dữ liệu, gửi thông báo và đồng bộ hóa hoạt động với nhau.
+Mỗi process trong Linux thường có virtual address space riêng, vì vậy một process không thể trực tiếp truy cập vùng nhớ của process khác. IPC cung cấp các phương thức an toàn và có kiểm soát để các process có thể giao tiếp.
+ 
+2.2. Signal
+Khái niệm
+Signal là một cơ chế IPC đơn giản cho phép Kernel gửi một thông báo bất đồng bộ (asynchronous notification) đến process.
+Signal chủ yếu dùng để thông báo cho process rằng một sự kiện nào đó đã xảy ra, thay vì truyền một lượng dữ liệu lớn.
+Ưu điểm
+●	Đơn giản. 
+●	Nhanh. 
+●	Được Kernel hỗ trợ trực tiếp. 
+●	Phù hợp để thông báo sự kiện. 
+Nhược điểm
+●	Khả năng truyền dữ liệu rất hạn chế. 
+●	Không phù hợp để truyền dữ liệu lớn. 
+●	Signal có thể bị xử lý bất đồng bộ, cần thiết kế cẩn thận.
+Ứng dụng
+Signal thường được sử dụng để:
+Ctrl+C → SIGINT
+Stop service → SIGTERM
+Child process kết thúc → SIGCHLD
+2.3. Pipe
+Khái niệm
+Pipe là một cơ chế IPC cho phép truyền dữ liệu giữa các process thông qua một buffer do Kernel quản lý.
+Pipe thông thường là một chiều: 
+ 
+Pipe được tạo bằng:  int fd[2];       ví dụ:  write(fd[1], "Hello", 5);  
+                                  pipe(fd);                     read(fd[0], buffer, 5);
+Pipe thường được sử dụng cùng với fork():
+ 
+Ưu điểm
+●	Dễ sử dụng. 
+●	Phù hợp để truyền stream dữ liệu. 
+●	Hoạt động tốt giữa parent và child. 
+●	Kernel quản lý việc truyền dữ liệu. 
+Nhược điểm
+●	Pipe thông thường chủ yếu là one-way. 
+●	Thường phù hợp nhất với các process có quan hệ thông qua fork(). 
+●	Muốn giao tiếp hai chiều thường cần hai pipe.
+2.4. FIFO – Named Pipe
+Khái niệm
+FIFO (First In, First Out) hay Named Pipe tương tự Pipe nhưng có một tên trong filesystem.
+Pipe vs FIFO
+Đặc điểm	Pipe	FIFO
+Tên trong filesystem	Không	Có
+Parent-child	Thường dùng	Không bắt buộc
+Process độc lập	Hạn chế	Có
+Hướng truyền	Thường một chiều	Thường một chiều
+Tạo	pipe()	mkfifo()
+		
+2.5. Message Queue
+Khái niệm
+Message Queue cho phép các process trao đổi dữ liệu dưới dạng các message độc lập.
+Khác với Pipe truyền một stream byte, Message Queue tổ chức dữ liệu thành từng message.
+ 
+Đặc điểm
+Message Queue có thể hỗ trợ:
+●	Gửi message. 
+●	Nhận message. 
+●	Phân loại message. 
+●	Xử lý message theo thứ tự.
+Ưu điểm
+●	Dữ liệu được tổ chức thành message. 
+●	Phù hợp với hệ thống event/command. 
+●	Các process không cần chia sẻ trực tiếp memory. 
+Nhược điểm
+●	Có giới hạn về kích thước và số lượng message. 
+●	Có overhead do Kernel phải quản lý message.
+2.6. Shared Memory
+Khái niệm
+Shared Memory cho phép nhiều process cùng truy cập một vùng memory được chia sẻ.
+Đây là một trong những phương pháp IPC có hiệu năng cao, đặc biệt khi cần trao đổi lượng dữ liệu lớn.
+ 
+Ưu điểm
+●	Rất nhanh khi truyền dữ liệu lớn. 
+●	Không cần copy dữ liệu qua nhiều lớp như một số IPC khác. 
+●	Phù hợp với image, tensor, buffer lớn. 
+Nhược điểm
+Shared Memory không tự giải quyết vấn đề đồng bộ.
+2.7. Semaphore
+Khái niệm
+Semaphore là cơ chế chủ yếu dùng để đồng bộ hóa các process hoặc thread.
+Nó không phải cơ chế truyền dữ liệu chính.
+                                                                
+Hai thao tác cơ bản:
+wait()   → yêu cầu quyền truy cập
+signal() → trả quyền truy cập
+Shared Memory + Semaphore
+Được sử dụng để tránh:
+●	Race condition. 
+●	Hai process cùng sửa dữ liệu. 
+●	Truy cập resource không đúng thứ tự.
+
+2.8. Unix Domain Socket
+Khái niệm
+Unix Domain Socket cho phép các process trên cùng một máy Linux giao tiếp thông qua socket.
+ 
+Mô hình Client/Server:
+ 
+Ưu điểm
+●	Giao tiếp hai chiều. 
+●	Có mô hình Client/Server. 
+●	Phù hợp cho các service chạy trên cùng máy. 
+●	Thường hiệu quả hơn TCP loopback cho giao tiếp nội bộ.
+Ứng dụng AI/DL
+ 
+2.9. TCP Socket
+Khái niệm
+TCP (Transmission Control Protocol) cho phép các process giao tiếp thông qua mạng theo mô hình connection-oriented.
+TCP cung cấp:
+●	Reliable delivery. 
+●	Ordered data. 
+●	Error detection. 
+●	Retransmission. 
+●	Connection-oriented communication.
+TCP Server:
+Các bước cơ bản:
+socket()
+↓
+bind()
+↓
+listen()
+↓
+accept()
+↓
+recv()/send()
+TCP Client:
+socket()
+   ↓
+connect()
+   ↓
+send()/recv()
+Mô hình:
+ 
+Ứng dụng
+TCP phù hợp cho:
+●	Web service. 
+●	File transfer. 
+●	Database connection. 
+●	AI inference service. 
+●	Distributed applications.
+
+2.10. UDP Socket
+Khái niệm
+UDP (User Datagram Protocol) cho phép gửi dữ liệu dưới dạng datagram mà không cần thiết lập connection như TCP.
+
+Process A
+│
+│ 
+UDP Datagram
+▼
+Network
+│
+▼
+Process B
+Ưu điểm
+●	Nhanh. 
+●	Overhead thấp. 
+●	Không cần thiết lập connection. 
+●	Phù hợp với dữ liệu real-time. 
+Nhược điểm
+●	Có thể mất packet. 
+●	Không đảm bảo thứ tự. 
+●	Ứng dụng phải tự xử lý reliability nếu cần.
+TCP vs UDP
+Đặc điểm	TCP	UDP
+Connection	Có	Không
+Reliability	Có	Không đảm bảo
+Ordering	Có	Không đảm bảo
+Retransmission	Có	Không
+Overhead	Cao hơn	Thấp hơn
+Tốc độ/latency	Thường cao hơn	Thường thấp hơn
+Ứng dụng	HTTP, file transfer	  Streaming, real-time, DNS
+
+2.11. ZeroMQ
+ZeroMQ là một thư viện messaging cấp cao giúp xây dựng hệ thống giao tiếp giữa các process hoặc các máy.
+Nó cung cấp các pattern như:
+REQ / REP
+PUB / SUB
+PUSH / PULL
+Ví dụ:
+ 
+ZeroMQ phù hợp khi hệ thống bắt đầu phức tạp hơn IPC truyền thống.
+2.12. gRPC
+gRPC là framework cho phép một chương trình gọi function/service trên một process hoặc server khác thông qua RPC.
+ 
+Ví dụ 1 — gRPC Image Classification
+Python Client — client.py
+import grpc
+import image_pb2
+import image_pb2_grpc
+
+channel = grpc.insecure_channel('localhost:50051')
+stub = image_pb2_grpc.AIServiceStub(channel)
+
+with open("cat.jpg", "rb") as f:
+    img_data = f.read()
+
+response = stub.Inference(
+    image_pb2.ImageRequest(image=img_data)
+)
+
+print(
+    "Result:",
+    response.label,
+    "confidence:",
+    response.confidence
+)
+C++ AI Server — server.cpp
+class AIServiceImpl : public image_pb2_grpc::AIService::Service {
+
+    grpc::Status Inference(
+        grpc::ServerContext* context,
+        const image_pb2::ImageRequest* request,
+        image_pb2::ImageResponse* response) override
+    {
+        // Xử lý ảnh và chạy mô hình AI
+        std::string label = "cat";
+        float confidence = 0.98;
+
+        response->set_label(label);
+        response->set_confidence(confidence);
+
+        return grpc::Status::OK;
+    }
+};
+Ví dụ 2 — gRPC Text Inference
+Python Client — client.py
+import grpc
+import text_pb2
+import text_pb2_grpc
+
+channel = grpc.insecure_channel('localhost:50051')
+stub = text_pb2_grpc.TextServiceStub(channel)
+
+request = text_pb2.TextRequest(
+    text="I love this movie!"
+)
+
+response = stub.Inference(request)
+
+print(
+    "Result:",
+    response.label,
+    "confidence:",
+    response.confidence
+)
+C++ AI Server — server.cpp
+class TextServiceImpl : public text_pb2_grpc::TextService::Service {
+
+    grpc::Status Inference(
+        grpc::ServerContext* context,
+        const text_pb2::TextRequest* request,
+        text_pb2::TextResponse* response) override
+    {
+        std::string text = request->text();
+
+        // Ví dụ: phân loại cảm xúc đơn giản
+        std::string label = "positive";
+        float confidence = 0.95;
+
+        response->set_label(label);
+        response->set_confidence(confidence);
+
+        return grpc::Status::OK;
+    }
+};
+gRPC đặc biệt phù hợp với:
+●	Microservices. 
+●	AI inference server. 
+●	Distributed systems. 
+●	Client/Server applications. 
+
+2.13. HTTP/REST
+HTTP/REST là một phương pháp giao tiếp rất phổ biến giữa các application và service.
+ 
+REST dễ sử dụng và phù hợp khi xây dựng AI inference API.
+2.14. MQTT
+MQTT (Message Queuing Telemetry Transport) là một communication protocol nhẹ, thường được sử dụng trong IoT và Embedded Systems.
+ 
+MQTT phù hợp với:
+●	IoT. 
+●	Sensor networks. 
+●	Embedded Linux. 
+●	Smart devices.
+
+2.15. IPC trong AI/DL
+Đối với AI/DL, IPC đặc biệt quan trọng khi hệ thống được chia thành nhiều process.
+ 
+
+
 
