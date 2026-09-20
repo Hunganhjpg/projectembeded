@@ -17,3 +17,7 @@
 ### Báo cáo tuần 4
 
 - học, hiểu và hoàn thành phần 2. IPC – Inter-Process Communication
+
+### Báo cáo tuần 5
+
+- học, hiểu và hoàn thành phần 3. Synchronization
