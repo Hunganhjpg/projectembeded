@@ -21,3 +21,5 @@
 ### Báo cáo tuần 5
 
 - học, hiểu và hoàn thành phần 3. Synchronization
+- học, hiểu và hoàn thành phần 4. CPU Architecture & Performance
+- học, hiểu và hoàn thành phần 8. Multi-thread & Multi-core Programming
