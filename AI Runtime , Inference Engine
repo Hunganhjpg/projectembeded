@@ -1,83 +1,45 @@
-# TỔNG QUAN CHUYÊN SÂU VỀ CÁC AI INFERENCE ENGINES & COMPILERS
+1. ONNX (Open Neural Network Exchange)
+Bản chất: Định dạng chuẩn mở (Open Format/Spec) biểu diễn đồ thị tính toán (Computational Graph) của mô hình AI, không phải là một runtime engine thực thi.
+Đơn vị phát triển: Microsoft, Meta và cộng đồng open-source.
+Vai trò: Làm "mặt bằng chung" (Intermediate Representation - IR) kết nối giữa các framework huấn luyện (PyTorch, TensorFlow, Scikit-learn) và các Engine suy luận.
+Điểm mạnh:
+Giải quyết vấn đề độc quyền định dạng: Chuyển đổi mô hình dễ dàng (PyTorch -> ONNX).
+Lưu trữ cấu trúc graph và trọng số (weights) trong một file duy nhất (.onnx hoặc .pb).
 
-Tài liệu này phân tích chi tiết 5 công nghệ nền tảng trong lĩnh vực **AI Model Deployment & Inference**: ONNX, ONNX Runtime, TensorFlow Lite, OpenVINO và Apache TVM.
-
----
-
-## 1. ONNX (Open Neural Network Exchange)
-
-### 1.1. Bản chất & Kiến trúc
-- **ONNX không phải là một thư viện thực thi (Runtime)** mà là một **Chuẩn Định Dạng Mô Tả Mô Hình (Specification Standard)**.
-- Định nghĩa đồ thị tính toán (Computational Graph) dựa trên **Protocol Buffers (protobuf)**.
-- Mỗi node trong đồ thị đại diện cho một toán tử (Operator - như `Conv`, `Relu`, `MatMul`), đi kèm với danh sách các input, output và thuộc tính (attributes).
-
-### 1.2. Vai trò trong Hệ sinh thái AI
-ONNX đóng vai trò là **Intermediate Representation (IR)**. Nhờ có ONNX, chuỗi công việc (Pipeline) được phân tách rõ ràng:
-- **Training Phase:** Tùy chọn framework tốt nhất (PyTorch, TensorFlow, JAX).
-- **Export Phase:** Xuất mô hình sang dạng `.onnx`.
-- **Inference Phase:** Chọn engine tối ưu cho phần cứng mục tiêu (ONNX Runtime, TensorRT, OpenVINO).
-
-### 1.3. Code Minh Họa: Export mô hình từ PyTorch sang ONNX
-
-```python
-import torch
-import torch.nn as nn
-
-# 1. Định nghĩa một mô hình PyTorch đơn giản
-class SimpleCNN(nn.Module):
-    def __init__(self):
-        super(SimpleCNN, self).__init__()
-        self.conv = nn.Conv2d(1, 16, kernel_size=3, padding=1)
-        self.relu = nn.ReLU()
-        self.fc = nn.Linear(16 * 28 * 28, 10)
-
-    def forward(self, x):
-        x = self.relu(self.conv(x))
-        x = x.view(x.size(0), -1)
-        return self.fc(x)
-
-model = SimpleCNN()
-model.eval()
-
-# 2. Tạo Dummy Input để Tracing đồ thị tính toán
-dummy_input = torch.randn(1, 1, 28, 28)
-
-# 3. Export sang ONNX
-torch.onnx.export(
-    model,                      # Mô hình PyTorch
-    dummy_input,                # Input mẫu
-    "simple_cnn.onnx",          # Tên file xuất ra
-    export_params=True,         # Lưu cả trọng số (weights)
-    opset_version=14,           # Phiên bản ONNX Operator Set
-    do_constant_folding=True,   # Tối ưu hóa gộp hằng số
-    input_names=['input'],      # Tên input node
-    output_names=['output'],    # Tên output node
-    dynamic_axes={              # Hỗ trợ Dynamic Batch Size
-        'input': {0: 'batch_size'},
-        'output': {0: 'batch_size'}
-    }
-)
-
-print("Đã xuất mô hình thành công ra file simple_cnn.onnx!")
 2. ONNX Runtime (ORT)
-1.1. Bản chất & Cơ chế Execution Provider (EP)
-ONNX Runtime là engine thực thi hiệu năng cao được phát triển bởi Microsoft. Điểm mạnh cốt lõi của ORT là kiến trúc Execution Providers (EP):
+Bản chất: Cross-Platform Inference Engine chuyên thực thi các mô hình định dạng ONNX với hiệu năng cao.
+Đơn vị phát triển: Microsoft.
+Phần cứng mục tiêu: Đa nền tảng — CPU (x86/ARM), GPU (NVIDIA, AMD), NPU, WebAssembly (Browser), Mobile.
+Kiến trúc cốt lõi: Execution Providers (EP)
+ORT không tự tính toán toàn bộ mà đóng vai trò điều phối. Nó chuyển các sub-graph xuống các EP tương ứng: CPUExecutionProvider (dùng MLAS/OpenMP), CUDAExecutionProvider / TensorRT (NVIDIA), OpenVINOExecutionProvider (Intel).
+Điểm mạnh:
+Dễ tích hợp vào sản phẩm thực tế (C++, Python, C#, Java).
+Tối ưu hóa đồ thị (Graph Optimization) và quản lý bộ nhớ cực tốt.
 
-Trình điều phối (Orchestrator): ORT phân tích đồ thị ONNX, tự động tách đồ thị thành các đồ thị con (sub-graphs).
+3. TensorFlow Lite (TFLite)
+Bản chất: Lightweight Inference Engine tối ưu cho thiết bị di động, thiết bị nhúng và IoT.
+Đơn vị phát triển: Google.
+Phần cứng mục tiêu: Android, iOS, Raspberry Pi, ARM Cortex-M (TFLite Micro for Microcontrollers).
+Điểm mạnh:
+Kích thước siêu nhỏ: Binary footprint chỉ khoảng vài trăm KB đến vài MB.
+Tối ưu Lượng hóa (Quantization): Hỗ trợ lượng hóa INT8 / FP16 chuyên sâu, giảm dung lượng model 4x và tăng tốc trên phần cứng ARM NEON / Edge TPU.
+Tích hợp sẵn Delegate hỗ trợ phần cứng di động: GPU Delegate, NNAPI (Android), CoreML (iOS).
 
-Phân phối tác vụ: Đẩy từng sub-graph xuống phần cứng phù hợp nhất thông qua các EP tương ứng.
-[ ONNX Model Graph ]
-                           │
-                 [ ONNX Runtime Core ]
-              ┌────────────┼────────────┐
-              ▼            ▼            ▼
-       [CUDA / TensorRT] [OpenVINO]   [CPU EP]
-          (NVIDIA GPU)   (Intel CPU)  (MLAS/OpenMP)
-2.2. Các Execution Providers chính
-CPUExecutionProvider: Sử dụng thư viện MLAS của Microsoft hoặc OpenMP.
+4. OpenVINO (Open Visual Inference and Neural Network Optimization)
+Bản chất: Toolkit & Inference Engine chuyên biệt để tối ưu và tăng tốc suy luận trên các hệ thống phần cứng của Intel.
+Đơn vị phát triển: Intel.
+Phần cứng mục tiêu: Intel CPU (Xeon, Core), Integrated GPU (Iris Xe), Discrete GPU (Arc), Intel VPU/NPU.
+Điểm mạnh:
+Tận dụng tối đa phần cứng Intel: Kích hoạt triệt để các tập lệnh SIMD nâng cao như AVX-2, AVX-512, VNNI (Vector Neural Network Instructions), và AMX (Advanced Matrix Extensions).
+Model Optimizer: Tự động tối ưu hóa graph, gộp toán tử (Operator Fusion) và đổi layout bộ nhớ sang dạng tối ưu cho Intel CPU/iGPU.
 
-CUDAExecutionProvider / TensorRTExecutionProvider: Tối ưu riêng cho GPU NVIDIA.
+5. Apache TVM
+Bản chất: Deep Learning Compiler (Trình biên dịch học sâu) mã nguồn mở end-to-end.
+Đơn vị phát triển: Apache Software Foundation (khởi xướng bởi UW).
+Cách hoạt động: Không chạy mô hình thông qua danh sách toán tử có sẵn (như Runtime thông thường). TVM biên dịch (compile) đồ thị AI trực tiếp thành mã máy (Machine Code / Assembly / C++) dành riêng cho từng kiến trúc phần cứng mục tiêu.
+Điểm mạnh:
+Auto-Tuning (Ansor/AutoTVM): Tự động tìm kiếm giải pháp tối ưu vòng lặp và bộ nhớ tốt nhất cho phần cứng đích.
+Chạy trên phần cứng độc lạ: Rất mạnh khi triển khai AI lên ASIC, FPGA, RISC-V hoặc các chip nhúng không hỗ trợ các thư viện chuẩn.
 
-CoreMLExecutionProvider: Tối ưu trên Apple Silicon (Mac/iOS).
 
-OpenVINOExecutionProvider: Tối ưu cho phần cứng Intel.
+
