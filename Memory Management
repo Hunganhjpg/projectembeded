@@ -1,0 +1,388 @@
+5. MEMORY MANAGEMENT
+5.1. Tổng quan về quản lý bộ nhớ
+Memory Management (quản lý bộ nhớ) là thành phần quan trọng của hệ điều hành và lập trình hệ thống. Với AI/DL, vấn đề này càng quan trọng vì mô hình phải xử lý lượng lớn dữ liệu và tensor trong huấn luyện cũng như suy luận.
+Chương trình thường làm việc với Virtual Memory; hệ điều hành quản lý việc ánh xạ giữa không gian địa chỉ ảo và bộ nhớ vật lý.
+
+Virtual Memory
+       │
+       ├── Stack
+       ├── Heap
+       ├── mmap()
+       ├── Shared Memory
+       └── Memory Mapping
+
+- Stack: dùng cho biến cục bộ, tham số hàm và thông tin phục vụ gọi hàm.
+- Heap: dùng cho cấp phát động trong quá trình chạy.
+- mmap(): ánh xạ vùng nhớ vào không gian địa chỉ của tiến trình.
+- Shared Memory: vùng nhớ nhiều tiến trình có thể cùng truy cập.
+- Memory Mapping: ánh xạ địa chỉ ảo với dữ liệu hoặc tài nguyên.
+Quản lý bộ nhớ tốt giúp giảm thời gian cấp phát, hạn chế sao chép dữ liệu không cần thiết và sử dụng tài nguyên hiệu quả.
+5.2. Linux Memory
+5.2.1. Virtual Memory
+Virtual Memory (bộ nhớ ảo) cho phép mỗi tiến trình có không gian địa chỉ riêng, được hệ điều hành quản lý và ánh xạ tới bộ nhớ vật lý. Chương trình sử dụng địa chỉ ảo thay vì trực tiếp quản lý địa chỉ RAM.
+
+Program
+   │
+   ▼
+Virtual Address
+   │
+   ▼
+Memory Management
+   │
+   ▼
+Physical Memory (RAM)
+
+Tạo không gian địa chỉ riêng và tăng tính bảo vệ giữa các tiến trình.
+Hỗ trợ paging, swap và ánh xạ file/vùng nhớ đặc biệt.
+Trong AI/DL, Virtual Memory giúp quản lý vùng dữ liệu lớn linh hoạt; tuy nhiên sử dụng bộ nhớ kém hiệu quả hoặc có nhiều page fault có thể làm giảm hiệu năng.
+5.2.2. Physical Memory
+Physical Memory là RAM thực tế. Hệ điều hành quản lý việc phân phối RAM giữa các tiến trình.
+
+Virtual Memory
+      │
+      │ Mapping
+      ▼
+Physical Memory
+      │
+      ▼
+RAM
+
+AI/DL có thể cần RAM cho dữ liệu đầu vào, tensor, model parameters, intermediate results và các vùng nhớ tính toán.
+Vì vậy, sử dụng physical memory hiệu quả ảnh hưởng trực tiếp đến khả năng chạy mô hình.
+5.2.3. Page
+Page là đơn vị quản lý bộ nhớ của Virtual Memory. Không gian địa chỉ ảo được chia thành các page, còn bộ nhớ vật lý được chia thành các frame.
+
+Virtual Memory
+┌──────┬──────┬──────┬──────┐
+│Page 0│Page 1│Page 2│Page 3│
+└──────┴──────┴──────┴──────┘
+          Mapping
+Physical Memory
+┌───────┬───────┬───────┬───────┐
+│Frame A│Frame C│Frame B│Frame D│
+└───────┴───────┴───────┴───────┘
+Các page không nhất thiết nằm liên tiếp trong RAM; hệ điều hành có thể ánh xạ chúng tới các frame khác nhau.
+5.2.4. Page Fault
+Page Fault xảy ra khi chương trình truy cập một page nhưng page đó chưa sẵn sàng trong bộ nhớ vật lý theo cách cần thiết. Hệ điều hành phải xử lý trước khi chương trình tiếp tục.
+
+Program accesses memory
+          │
+          ▼
+    Page available?
+      /        \
+    Yes         No
+     │           │
+     ▼           ▼
+ Continue     Page Fault
+                  │
+                  ▼
+            OS handles fault
+                  │
+                  ▼
+               Continue
+Page fault có chi phí cao hơn truy cập vùng nhớ đã sẵn sàng. Nếu xảy ra thường xuyên, hiệu năng AI/DL có thể bị ảnh hưởng.
+5.2.5. Swap
+Swap là cơ chế dùng vùng lưu trữ để hỗ trợ quản lý bộ nhớ khi RAM không đủ hoặc hệ điều hành cần điều chỉnh việc sử dụng bộ nhớ.
+
+RAM
+ │
+ │ Memory pressure
+ ▼
+Swap
+ │
+ ▼
+Storage
+Storage chậm hơn RAM rất nhiều, nên phụ thuộc thường xuyên vào swap có thể làm giảm hiệu năng. Với AI/DL, thiếu RAM và sử dụng swap thường xuyên có thể làm tăng đáng kể thời gian xử lý.
+5.2.6. Memory Mapping
+Memory Mapping là cơ chế ánh xạ dữ liệu hoặc tài nguyên vào không gian địa chỉ của tiến trình. Trong Linux, cơ chế này có thể thực hiện bằng mmap().
+
+File / Resource
+       │
+       │ mmap()
+       ▼
+Virtual Address Space
+       │
+       ▼
+Program accesses memory
+Memory mapping hữu ích khi làm việc với file lớn hoặc dữ liệu cần truy cập theo từng vùng.
+5.2.7. Copy-on-Write
+Copy-on-Write (COW) cho phép nhiều tiến trình hoặc vùng nhớ tạm thời chia sẻ cùng dữ liệu cho đến khi một bên ghi. Không cần sao chép dữ liệu ngay từ đầu.
+COW giúp giảm lượng bộ nhớ sử dụng và tránh các thao tác sao chép không cần thiết.
+5.3. Memory Management trong C/C++
+C/C++ cung cấp các cơ chế làm việc trực tiếp với bộ nhớ. Hiểu cách cấp phát và giải phóng bộ nhớ rất quan trọng trong các chương trình hiệu năng cao.
+5.3.1. Stack Allocation
+Stack thường dùng cho dữ liệu gắn với quá trình thực thi của hàm như biến cục bộ và tham số. Khi hàm kết thúc, vùng stack tương ứng được thu hồi.
+Ví dụ:
+Function
+   │
+   ├── Local variable
+   ├── Parameters
+   └── Function information
+Stack có ưu điểm là cấp phát/thu hồi thường nhanh, nhưng kích thước có giới hạn; sử dụng quá nhiều có thể gây stack overflow.
+5.3.2. Heap Allocation
+Heap dùng cho cấp phát bộ nhớ động. Dữ liệu trên heap có thể tồn tại lâu hơn thời gian thực thi của một hàm và được quản lý bằng các cơ chế cấp phát động.
+Có thể mô tả:
+Program
+   │
+   ▼
+Heap
+   │
+   ├── Allocate
+   ├── Use
+   └── Free
+Heap phù hợp với dữ liệu có kích thước hoặc thời gian sống không cố định. Trong AI/DL, heap có thể dùng để lưu các vùng dữ liệu lớn như tensor hoặc buffer.
+5.3.3. malloc()
+Trong C, malloc() dùng để cấp phát bộ nhớ động. 
+Ví dụ:
+int *p;
+
+p = (int*)malloc(10 * sizeof(int));
+Đoạn mã cấp phát đủ bộ nhớ cho 10 phần tử kiểu int. Bộ nhớ đã cấp phát cần được giải phóng khi không còn sử dụng.
+5.3.4. free()
+free() dùng để giải phóng vùng bộ nhớ đã cấp phát động.
+
+malloc()
+   │
+   ▼
+Allocate Memory
+   │
+   ▼
+Use Memory
+   │
+   ▼
+free()
+   │
+   ▼
+Release Memory
+Nếu không giải phóng đúng cách, bộ nhớ có thể tiếp tục bị chiếm dụng trong thời gian chương trình chạy.
+5.3.5. Memory Leak
+Memory Leak xảy ra khi chương trình đã cấp phát bộ nhớ nhưng không giải phóng sau khi không còn sử dụng.
+Ví dụ về logic:
+Allocate Memory
+      │
+      ▼
+Use Memory
+      │
+      ▼
+Forgot to free()
+      │
+      ▼
+Memory remains occupied
+Nếu lặp lại nhiều lần, lượng bộ nhớ bị chiếm dụng tăng dần. Với chương trình AI chạy lâu hoặc xử lý nhiều batch, memory leak có thể làm tăng RAM sử dụng và ảnh hưởng toàn hệ thống.
+5.3.6. Buffer Overflow
+Buffer Overflow xảy ra khi chương trình ghi dữ liệu vượt quá kích thước vùng nhớ được cấp cho buffer.
+Buffer
+┌────┬────┬────┬────┐
+│    │    │    │    │
+└────┴────┴────┴────┘
+      4 bytes
+
+Write too much data
+        ↓
+┌────┬────┬────┬────┬────┬────┐
+│    │    │    │    │ XX │ XX │
+└────┴────┴────┴────┴────┴────┘
+                  ↑
+               Overflow
+- Dữ liệu bị ghi đè.
+- Chương trình hoạt động sai hoặc crash.
+- Có thể tạo lỗ hổng bảo mật.
+Vì vậy cần quản lý kích thước buffer và giới hạn dữ liệu ghi vào vùng nhớ.
+5.4. Memory Management trong AI Performance
+Trong AI/DL, quản lý bộ nhớ không chỉ để tránh lỗi mà còn ảnh hưởng trực tiếp đến hiệu năng. Mô hình thường xử lý nhiều tensor và buffer.
+Input Data
+    │
+    ▼
+Tensor
+    │
+    ▼
+Computation
+    │
+    ▼
+Intermediate Tensor
+    │
+    ▼
+Output
+Nếu mỗi thao tác đều tạo và giải phóng bộ nhớ mới, chương trình có thể phát sinh nhiều overhead. Vì vậy cần quan tâm đến memory reuse, memory pool và zero-copy.
+5.4.1. Memory Allocation Overhead
+Memory Allocation Overhead là chi phí khi chương trình cấp phát và giải phóng bộ nhớ.
+
+Allocate → Use → Free
+     ↓
+Allocate → Use → Free
+
+Nếu diễn ra với tần suất cao, thời gian quản lý bộ nhớ có thể chiếm phần đáng kể trong tổng thời gian thực thi. Một hướng tối ưu là giảm các lần cấp phát/giải phóng không cần thiết.
+5.4.2. Tensor Allocation
+Trong Deep Learning, dữ liệu thường được biểu diễn bằng tensor. Tensor có thể chứa input data, model parameters, intermediate results, output data và gradient khi training.
+Liên tục tạo tensor mới làm phát sinh nhiều thao tác cấp phát. Vì vậy, quản lý vòng đời tensor là một phần quan trọng trong tối ưu AI.
+5.4.3. Memory Reuse
+Memory Reuse là tái sử dụng vùng bộ nhớ đã cấp phát thay vì liên tục tạo vùng nhớ mới.
+Allocate → Memory Buffer
+                ↓
+              Reuse
+                ↓
+              Reuse
+                ↓
+              Reuse
+Cách này giúp giảm số lần cấp phát và giải phóng bộ nhớ.
+5.4.4. Memory Pool
+Memory Pool là vùng bộ nhớ được cấp phát trước để sử dụng lại nhiều lần. Thay vì mỗi lần cần dữ liệu lại yêu cầu vùng nhớ mới, chương trình lấy vùng nhớ từ pool.
+
+Pre-allocate Memory Pool
+          │
+          ▼
+     ┌───────────────┐
+     │ Memory Pool   │
+     ├───────────────┤
+     │ Block 1       │
+     │ Block 2       │
+     │ Block 3       │
+     │ Block 4       │
+     └───────────────┘
+          │
+          ▼
+      Reuse Memory
+
+Memory pool giúp giảm số lần gọi cơ chế cấp phát và hỗ trợ quản lý buffer hiệu quả hơn.
+5.4.5. Zero-Copy
+Zero-Copy nhằm hạn chế hoặc loại bỏ các thao tác sao chép dữ liệu không cần thiết giữa các vùng bộ nhớ.
+
+Data
+ ↓
+Buffer A
+ ↓ copy
+Buffer B
+ ↓ copy
+Buffer C
+             ┌──────────────┐
+             │ Shared Data  │
+             └──────┬───────┘
+                    │
+          ┌─────────┼─────────┐
+          ▼         ▼         ▼
+       Module A  Module B  Module C
+
+Zero-copy có thể giúp giảm memory bandwidth và thời gian sao chép dữ liệu.
+5.4.6. Shared Memory
+Shared Memory là vùng bộ nhớ có thể được nhiều tiến trình hoặc thành phần cùng truy cập, giúp giảm việc tạo bản sao dữ liệu.
+
+Process A ─────┐
+               ▼
+          Shared Memory
+               ▲
+Process B ─────┘
+
+Shared memory phù hợp với ứng dụng cần trao đổi lượng dữ liệu lớn và là khái niệm quan trọng khi nhiều thành phần AI/DL cần chia sẻ dữ liệu.
+5.5. So sánh cấp phát bộ nhớ không tối ưu và sử dụng Memory Pool
+Trong xử lý dữ liệu lớn, việc liên tục cấp phát và giải phóng bộ nhớ có thể làm tăng allocation overhead.
+5.5.1. Cách tiếp cận không tối ưu
+Bad:
+
+Load Data
+   ↓
+Allocate
+   ↓
+Use
+   ↓
+Free
+   ↓
+Allocate
+   ↓
+Use
+   ↓
+Free
+   ↓
+Allocate
+   ↓
+Use
+   ↓
+Free
+Chương trình lặp lại Allocate → Use → Free, làm tăng chi phí quản lý bộ nhớ.
+5.5.2. Cách tiếp cận sử dụng Memory Pool
+Good:
+
+Pre-allocate Memory Pool
+          │
+          ▼
+     ┌───────────┐
+     │    Pool   │
+     └─────┬─────┘
+           │
+           ▼
+      Reuse Memory
+           │
+           ▼
+      Reuse Memory
+           │
+           ▼
+      Reuse Memory
+Fewer Allocations
+        ↓
+Less Allocation Overhead
+        ↓
+Better Memory Management
+        ↓
+Better Performance
+Thay vì liên tục cấp phát mới, chương trình sử dụng lại các vùng nhớ đã chuẩn bị trước.
+5.6. Vai trò của Memory Management đối với AI/DL
+Memory Management có vai trò quan trọng vì AI/DL thường xử lý lượng dữ liệu lớn và nhiều tensor cùng lúc.
+Có thể tổng hợp mối quan hệ như sau:
+Large AI/DL Model
+        │
+        ▼
+Large Amount of Data
+        │
+        ▼
+Many Tensors / Buffers
+        │
+        ▼
+Memory Allocation
+        │
+        ▼
+Memory Management
+        │
+        ├── Memory Reuse
+        ├── Memory Pool
+        ├── Zero-Copy
+        └── Shared Memory
+        │
+        ▼
+Reduce Memory Overhead
+        │
+        ▼
+Improve Performance
+Quản lý kém có thể dẫn đến: sử dụng quá nhiều RAM, tăng thời gian cấp phát/giải phóng, sao chép dữ liệu không cần thiết, memory leak, buffer overflow, page fault/memory pressure và giảm hiệu năng.
+Quản lý hợp lý giúp sử dụng tài nguyên hiệu quả hơn, giảm overhead và cải thiện hiệu năng xử lý AI/DL.
+5.7. Tổng kết
+Memory Management là nội dung quan trọng trong lập trình hệ thống và AI/DL. Ở cấp độ hệ điều hành cần hiểu Virtual Memory, Physical Memory, Page, Page Fault, Swap, Memory Mapping và Copy-on-Write.
+Ở cấp độ C/C++ cần nắm Stack Allocation, Heap Allocation, malloc(), free(), Memory Leak và Buffer Overflow.
+Ở cấp độ AI Performance cần quan tâm Memory Allocation Overhead, Tensor Allocation, Memory Reuse, Memory Pool, Zero-Copy và Shared Memory.
+
+Memory Management
+        │
+        ├── Linux Memory
+        │      ├── Virtual Memory
+        │      ├── Physical Memory
+        │      ├── Page
+        │      ├── Page Fault
+        │      ├── Swap
+        │      ├── Memory Mapping
+        │      └── Copy-on-Write
+        │
+        ├── C/C++
+        │      ├── Stack Allocation
+        │      ├── Heap Allocation
+        │      ├── malloc()
+        │      ├── free()
+        │      ├── Memory Leak
+        │      └── Buffer Overflow
+        │
+        └── AI Performance
+               ├── Memory Allocation Overhead
+               ├── Tensor Allocation
+               ├── Memory Reuse
+               ├── Memory Pool
+               ├── Zero-Copy
+               └── Shared Memory
+     
+Mục tiêu của Memory Management là sử dụng bộ nhớ hiệu quả, hạn chế cấp phát và sao chép không cần thiết, giảm overhead và nâng cao hiệu năng của hệ thống AI/DL.
