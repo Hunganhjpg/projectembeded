@@ -1,0 +1,203 @@
+11. PROFILING & BENCHMARKING
+Cơ sở lý thuyết về phân tích và đánh giá hiệu năng
+11.1. Tổng quan về Profiling và Benchmarking
+Trong quá trình phát triển và tối ưu hóa một ứng dụng, đặc biệt là các ứng dụng có yêu cầu cao về hiệu năng như ứng dụng AI, xử lý dữ liệu lớn hoặc chương trình đa luồng, việc đánh giá và xác định chính xác nguyên nhân ảnh hưởng đến hiệu năng là rất quan trọng. Profiling và Benchmarking là hai kỹ thuật thường được sử dụng để đo lường, phân tích và đánh giá hiệu năng của chương trình.
+Profiling là quá trình thu thập và phân tích thông tin về quá trình thực thi của một chương trình. Thay vì chỉ biết chương trình chạy nhanh hay chậm, profiling cho phép quan sát chi tiết cách chương trình sử dụng các tài nguyên của hệ thống như CPU, bộ nhớ, cache, thread và thời gian thực thi. Qua đó, người phát triển có thể xác định những phần trong chương trình đang tiêu tốn nhiều tài nguyên hoặc chiếm phần lớn thời gian thực thi, từ đó tìm ra bottleneck – điểm nghẽn làm ảnh hưởng đến hiệu năng tổng thể.
+                    AI Application
+                          │
+                          ▼
+                      Profiling
+                          │
+          ┌───────────────┼───────────────┐
+          ▼               ▼               ▼
+        CPU            Memory          Thread
+          │               │               │
+          └───────────────┼───────────────┘
+                          ▼
+                        Cache
+                          │
+                          ▼
+                  Execution Time
+                          │
+                          ▼
+                  Find Bottleneck
+                          │
+                          ▼
+                     Optimization
+Ví dụ, một chương trình có thể chạy chậm không phải vì toàn bộ chương trình đều hoạt động kém mà chỉ do một hàm hoặc một công đoạn cụ thể chiếm phần lớn thời gian thực thi. Profiling giúp xác định chính xác vị trí này để quá trình tối ưu tập trung vào nơi có ảnh hưởng lớn nhất.
+Trong khi đó, Benchmarking là quá trình đo lường hiệu năng của một chương trình hoặc hệ thống trong những điều kiện xác định. Benchmarking có thể được sử dụng để đo thời gian thực thi, mức sử dụng CPU, mức sử dụng bộ nhớ, so sánh các thuật toán hoặc phiên bản chương trình, đánh giá hiệu quả trước và sau khi tối ưu, cũng như kiểm tra khả năng đáp ứng khi tăng kích thước dữ liệu hoặc số lượng tác vụ.
+Để kết quả benchmarking có giá trị so sánh, các lần đo cần được thực hiện trong những điều kiện tương đối giống nhau. Các yếu tố như dữ liệu đầu vào, cấu hình phần cứng, môi trường phần mềm và phương pháp đo cần được kiểm soát. Nếu các điều kiện thay đổi quá nhiều, kết quả có thể không phản ánh chính xác sự khác biệt về hiệu năng.
+Profiling và Benchmarking có mối quan hệ chặt chẽ trong quá trình tối ưu hóa. Profiling giúp xác định chương trình đang chậm ở đâu và tài nguyên đang được sử dụng như thế nào, trong khi Benchmarking giúp xác định chương trình hoạt động nhanh đến mức nào và hiệu năng có được cải thiện sau khi tối ưu hay không.
+Quy trình tổng quát có thể được thực hiện như sau:
+Measure
+   ↓
+Profile
+   ↓
+Find Bottleneck
+   ↓
+Optimize
+   ↓
+Measure Again
+   ↓
+Compare
+Một nguyên tắc quan trọng trong quá trình tối ưu hóa hiệu năng là: “Không nên tối ưu trước khi đo lường.” Việc đo lường và phân tích trước giúp quá trình tối ưu có cơ sở, tránh tối ưu sai vị trí và cho phép đánh giá chính xác hiệu quả của những thay đổi đã thực hiện.
+11.2. Các chỉ số hiệu năng cần quan tâm
+CPU Usage
+CPU Usage biểu thị mức độ sử dụng bộ xử lý trong quá trình chương trình hoạt động. Nếu một chương trình sử dụng CPU rất cao trong thời gian dài, có thể chương trình đang thực hiện nhiều phép tính hoặc có một đoạn mã chưa được tối ưu.
+Tuy nhiên, CPU usage cao không phải lúc nào cũng có nghĩa là chương trình hoạt động kém. Một chương trình xử lý dữ liệu lớn có thể sử dụng CPU cao nhưng vẫn đạt hiệu năng tốt. Vì vậy CPU cần được đánh giá cùng với thời gian thực thi và các chỉ số khác.
+Memory Usage
+Memory Usage cho biết lượng bộ nhớ mà chương trình sử dụng trong quá trình thực thi.
+- Sử dụng quá nhiều RAM.
+- Cấp phát bộ nhớ không hợp lý.
+- Giải phóng bộ nhớ không đúng cách.
+- Memory leak.
+- Tạo quá nhiều đối tượng hoặc dữ liệu tạm thời.
+Trong các ứng dụng xử lý dữ liệu lớn hoặc AI, việc kiểm soát bộ nhớ đặc biệt quan trọng vì dữ liệu đầu vào, mô hình và các cấu trúc trung gian có thể chiếm lượng RAM rất lớn.
+Execution Time
+Execution Time là thời gian cần thiết để chương trình hoặc một tác vụ hoàn thành. Đây là một trong những chỉ số cơ bản nhất khi đánh giá hiệu năng.
+Improvement = ((T_before - T_after) / T_before) × 100%
+Trong đó T_before là thời gian trước khi tối ưu và T_after là thời gian sau khi tối ưu. Chỉ số này giúp định lượng mức cải thiện về thời gian thực thi.
+11.3. Cache và ảnh hưởng đến hiệu năng
+Cache là vùng bộ nhớ tốc độ cao được sử dụng để lưu trữ dữ liệu hoặc lệnh mà CPU có khả năng sử dụng lại.
+CPU
+ │
+ ├── L1 Cache
+ ├── L2 Cache
+ └── L3 Cache
+       │
+       ▼
+      RAM
+Hai khái niệm quan trọng là Cache hit và Cache miss. Cache hit xảy ra khi dữ liệu được tìm thấy trong cache; Cache miss xảy ra khi dữ liệu không có trong cache và phải truy cập tầng bộ nhớ thấp hơn. Cache miss nhiều có thể làm tăng thời gian thực thi.
+11.4. Profiling Thread
+Đối với chương trình đa luồng (multithreaded application), không chỉ cần quan sát toàn bộ chương trình mà còn phải xem xét hoạt động của từng thread.
+- Thread contention.
+- Lock contention.
+- Deadlock.
+- Race condition.
+- Synchronization overhead.
+- Thread switching overhead.
+Profiling thread giúp xác định cách các thread phân phối công việc và tìm ra những điểm gây giảm hiệu năng.
+11.5. Bottleneck là gì?
+Bottleneck là thành phần hoặc công đoạn giới hạn hiệu năng tổng thể của hệ thống. Có thể hiểu đơn giản, bottleneck là “nút thắt cổ chai” khiến toàn bộ chương trình không thể chạy nhanh hơn.
+Input
+  ↓
+Processing A → 5 ms
+  ↓
+Processing B → 8 ms
+  ↓
+Processing C → 80 ms  ← BOTTLENECK
+  ↓
+Processing D → 7 ms
+  ↓
+Output
+Nếu một công đoạn chiếm phần lớn thời gian thực thi, công đoạn đó thường là ứng viên cần được ưu tiên phân tích và tối ưu.
+- CPU Bottleneck: CPU là thành phần giới hạn hiệu năng.
+- Memory Bottleneck: hệ thống bị giới hạn bởi khả năng sử dụng hoặc truy cập bộ nhớ.
+- I/O Bottleneck: chương trình phải chờ đọc hoặc ghi dữ liệu.
+- Thread Bottleneck: phân chia hoặc đồng bộ hóa thread làm giảm hiệu năng.
+- Network Bottleneck: tốc độ truyền dữ liệu qua mạng trở thành yếu tố giới hạn.
+11.6. Các công cụ Profiling và Benchmarking trên Linux
+Top: top là công cụ có sẵn trên nhiều hệ thống Linux, cho phép theo dõi các process đang chạy theo thời gian thực.
+- CPU usage.
+- Memory usage.
+- Process ID.
+- Process state.
+- Thời gian CPU đã sử dụng.
+Htop: có chức năng tương tự top nhưng cung cấp giao diện trực quan hơn. Có thể theo dõi CPU, RAM, process, thread và mức tải của từng CPU core.
+Ps: được sử dụng để xem thông tin về các process. Có thể kiểm tra Process ID, CPU usage, Memory usage, user chạy process và thời gian CPU đã sử dụng.
+Free: được sử dụng để kiểm tra tình trạng bộ nhớ. Có thể quan sát Total RAM, Used RAM, Free RAM, Available RAM và Swap.
+Vmstat: cung cấp thông tin về hoạt động của hệ thống như CPU, memory, process, I/O và context switching.
+Iostat: tập trung vào hoạt động của CPU và thiết bị I/O, giúp xác định liệu hệ thống có đang bị giới hạn bởi hoạt động đọc/ghi dữ liệu hay không.
+11.7. Công cụ perf và time
+perf và time là hai công cụ phổ biến trên Linux được sử dụng để đo lường và phân tích hiệu năng của chương trình. Trong đó, time phù hợp với việc đo thời gian thực thi cơ bản, còn perf cung cấp khả năng phân tích sâu hơn về hoạt động của CPU và các tài nguyên phần cứng.
+perf là một công cụ mạnh trên Linux dùng để phân tích hiệu năng chương trình. Nó có thể cung cấp thông tin liên quan đến CPU cycles, instructions, cache, branches, context switches và nhiều performance events khác. Nhờ đó, perf có thể giúp xác định những yếu tố đang ảnh hưởng đến hiệu năng và tìm ra các điểm cần tối ưu. Công cụ này đặc biệt hữu ích khi cần phân tích chuyên sâu hơn so với các công cụ giám sát hệ thống như top hoặc htop.
+Ví dụ:
+perf stat ./program
+Bên cạnh đó, time được sử dụng để đo thời gian thực thi của một chương trình, phù hợp với các phép benchmark cơ bản. Kết quả của time thường bao gồm ba thông số chính:
+- real: thời gian thực tế mà người dùng phải chờ chương trình hoàn thành.
+- ser: thời gian CPU sử dụng để thực hiện mã chương trình ở user space.
+- sys: thời gian CPU sử dụng để thực hiện các tác vụ ở kernel space.
+Ví dụ:
+time ./program
+Như vậy, có thể sử dụng time để nhanh chóng xác định thời gian thực thi của chương trình, trong khi perf được sử dụng khi cần phân tích chi tiết hơn về hiệu năng CPU, cache, instructions và các hoạt động phần cứng khác. Hai công cụ có thể được kết hợp để có cái nhìn đầy đủ hơn về hiệu năng của chương trình.
+11.8. Công cụ Valgrind và Gprof
+Valgrind và Gprof là hai công cụ hỗ trợ phân tích chương trình, trong đó Valgrind tập trung vào các vấn đề liên quan đến bộ nhớ, còn Gprof tập trung vào việc phân tích thời gian thực thi của các hàm. Hai công cụ này giúp người phát triển xác định các vấn đề ảnh hưởng đến hiệu năng và tìm ra những vị trí cần được tối ưu.
+Valgrind là một framework phục vụ việc phân tích chương trình, đặc biệt phổ biến với các chương trình C/C++. Valgrind có thể hỗ trợ phát hiện các vấn đề như memory leak, invalid memory access, sử dụng bộ nhớ chưa được khởi tạo và một số lỗi liên quan đến quản lý bộ nhớ. Một công cụ phổ biến trong Valgrind là Memcheck, được sử dụng để kiểm tra các vấn đề liên quan đến bộ nhớ.
+Ví dụ:
+valgrind --leak-check=full ./program
+Trong khi đó, Gprof là công cụ profiling dành cho các chương trình được biên dịch bằng GCC, được sử dụng để phân tích thời gian thực thi của các hàm. Quy trình sử dụng Gprof có thể được khái quát như sau:
+Compile
+   ↓
+Run Program
+   ↓
+Generate Profiling Data
+   ↓
+Run gprof
+   ↓
+Analyze Functions
+Thông qua kết quả profiling, Gprof giúp người phát triển xác định những hàm chiếm nhiều thời gian thực thi nhất. Từ đó, có thể xác định bottleneck ở cấp độ hàm và tập trung tối ưu vào những phần có ảnh hưởng lớn nhất đến hiệu năng chương trình.
+Như vậy, Valgrind chủ yếu hỗ trợ phân tích và phát hiện vấn đề về bộ nhớ, trong khi Gprof tập trung vào phân tích thời gian thực thi của các hàm. Việc kết hợp hai công cụ giúp đánh giá chương trình toàn diện hơn cả về quản lý bộ nhớ và hiệu năng thực thi.
+11.9. Profiling trong Python và quy trình Profiling & Benchmarking
+Python cung cấp nhiều công cụ hỗ trợ profiling, giúp phân tích hiệu năng của chương trình ở các mức độ khác nhau, từ cấp độ hàm, từng dòng code cho đến mức sử dụng bộ nhớ.
+cProfile là công cụ profiling được tích hợp sẵn trong Python. Công cụ này cung cấp thông tin về số lần một hàm được gọi, tổng thời gian thực thi, thời gian thực thi của từng hàm và quan hệ gọi hàm, qua đó giúp xác định những hàm có ảnh hưởng lớn đến thời gian chạy của chương trình.
+Ví dụ:
+python -m cProfile program.py
+Bên cạnh đó, line_profiler cho phép phân tích hiệu năng ở mức từng dòng code. Công cụ này đặc biệt hữu ích khi đã xác định được một hàm hoạt động chậm nhưng chưa biết chính xác dòng lệnh nào trong hàm gây ra vấn đề.
+memory_profiler được sử dụng để theo dõi mức sử dụng bộ nhớ của chương trình Python. Công cụ này giúp xác định những dòng code hoặc đoạn chương trình làm tăng lượng bộ nhớ sử dụng, từ đó hỗ trợ phát hiện và xử lý các vấn đề liên quan đến bộ nhớ.
+Sau khi lựa chọn công cụ phù hợp, quá trình Profiling và Benchmarking có thể được thực hiện theo các bước sau:
+Bước 1: Xác định mục tiêu.
+Xác định yếu tố cần cải thiện như Execution Time, CPU, Memory, I/O hoặc Thread.
+Bước 2: Thiết lập môi trường thử nghiệm.
+Giữ điều kiện giữa các lần benchmark tương đối giống nhau, bao gồm chương trình, dữ liệu đầu vào, cấu hình phần cứng, môi trường phần mềm và phương pháp đo.
+Bước 3: Đo hiệu năng ban đầu.
+Chạy chương trình và thu thập các dữ liệu hiệu năng ban đầu để tạo baseline, làm cơ sở so sánh với các kết quả sau này.
+Bước 4: Tìm bottleneck.
+Phân tích kết quả profiling để xác định thành phần, hàm, thread hoặc công đoạn đang gây ảnh hưởng lớn nhất đến hiệu năng.
+Bước 5: Thực hiện tối ưu.
+Sau khi xác định bottleneck, tiến hành tối ưu bằng cách cải thiện thuật toán, giảm các phép tính không cần thiết, tối ưu cấu trúc dữ liệu, quản lý bộ nhớ, thread hoặc hoạt động I/O.
+Bước 6: Đo lại.
+Sau khi tối ưu, chạy lại chương trình bằng phương pháp đo tương tự để thu thập kết quả mới.
+Bước 7: So sánh kết quả.
+So sánh kết quả trước và sau tối ưu để đánh giá mức độ cải thiện và xác định liệu phương pháp tối ưu có thực sự mang lại hiệu quả hay không.
+Quy trình tổng quát:
+Xác định mục tiêu
+       ↓
+Thiết lập môi trường
+       ↓
+Đo hiệu năng ban đầu
+       ↓
+Tìm Bottleneck
+       ↓
+Thực hiện tối ưu
+       ↓
+Đo lại
+       ↓
+So sánh kết quả
+11.10. Nguyên tắc “Measure Before Optimize”
+Một trong những nguyên tắc quan trọng nhất trong tối ưu hóa hiệu năng là “Measure Before Optimize – Đo lường trước khi tối ưu”.
+Nguyên nhân là người phát triển thường có xu hướng đoán phần nào của chương trình đang chậm. Tuy nhiên, nguyên nhân thực tế có thể khác với dự đoán. Ví dụ, một đoạn code được cho là chậm nhưng profiling có thể cho thấy phần lớn thời gian lại nằm ở hoạt động I/O. Vì vậy, profiling giúp quá trình tối ưu dựa trên dữ liệu thực tế thay vì cảm tính.
+11.11. Mối quan hệ giữa Profiling, Optimization và các lưu ý khi Benchmark
+Profiling và Optimization có mối quan hệ chặt chẽ trong quá trình cải thiện hiệu năng của chương trình. Profiling giúp xác định vị trí gây ảnh hưởng đến hiệu năng, trong khi Optimization tập trung cải thiện những vị trí đó. Sau khi tối ưu, chương trình cần được đo lại để kiểm tra mức độ cải thiện. Vì vậy, quá trình tối ưu hóa thường được thực hiện theo một vòng lặp:
+Measure
+   ↓
+Profile
+   ↓
+Find Bottleneck
+   ↓
+Optimize
+   ↓
+Measure Again
+   ↓
+Compare
+   ↓
+Evaluate Result
+   │
+   └────────→ Further Optimization
+Đây là một vòng lặp tối ưu hóa. Không phải sau một lần tối ưu chương trình chắc chắn đạt được hiệu năng tốt nhất. Nếu kết quả đo cho thấy vẫn còn bottleneck hoặc mức cải thiện chưa đạt yêu cầu, quá trình profiling và optimization có thể được tiếp tục thực hiện qua nhiều vòng.
+Trong quá trình Benchmarking, để kết quả đo có độ tin cậy và khả năng so sánh tốt, cần lưu ý một số vấn đề sau:
+- Chạy chương trình nhiều lần: Không nên chỉ dựa vào kết quả của một lần chạy vì thời gian thực thi có thể chịu ảnh hưởng của hệ điều hành, các process khác đang hoạt động hoặc trạng thái hiện tại của hệ thống. Việc chạy nhiều lần giúp giảm ảnh hưởng của những biến động ngẫu nhiên và cho kết quả đánh giá đáng tin cậy hơn.
+- Giữ dữ liệu đầu vào ổn định: Các lần benchmark nên sử dụng dữ liệu đầu vào giống nhau hoặc có đặc điểm tương đương. Nếu dữ liệu đầu vào thay đổi quá nhiều, thời gian thực thi và mức sử dụng tài nguyên cũng có thể thay đổi, làm giảm tính chính xác khi so sánh.
+- Kiểm soát môi trường thử nghiệm: Các process khác đang chạy trên máy có thể sử dụng CPU, RAM hoặc I/O và ảnh hưởng đến kết quả benchmark. Vì vậy, cần hạn chế những tác vụ không cần thiết trong quá trình đo và cố gắng duy trì môi trường thử nghiệm ổn định.
+- Không chỉ đánh giá dựa trên một chỉ số: Một chương trình có thể chạy nhanh hơn nhưng đồng thời sử dụng lượng RAM lớn hơn hoặc tiêu tốn nhiều CPU hơn. Do đó, không nên chỉ dựa vào thời gian thực thi mà cần đánh giá đồng thời nhiều yếu tố như Time, CPU, Memory, I/O và khả năng mở rộng (Scalability).
+Như vậy, một kết quả tối ưu được xem là có ý nghĩa khi không chỉ làm chương trình nhanh hơn mà còn sử dụng tài nguyên hợp lý và đáp ứng được yêu cầu của hệ thống.
+
