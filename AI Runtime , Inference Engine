@@ -43,3 +43,268 @@ Chạy trên phần cứng độc lạ: Rất mạnh khi triển khai AI lên AS
 
 
 
+1. ONNX (Open Neural Network Exchange)
+1.1. Bản chất & Cấu trúc kỹ thuật sâu hơn
+Không phải là Runtime: ONNX hoàn toàn không thực hiện bất kỳ phép tính số học (math computation) hay gọi GPU kernel nào. Nó chỉ đơn thuần là một bản thiết kế kỹ thuật (Blueprint) mô tả cấu trúc mô hình.
+
+Định dạng Protocol Buffers: Tệp .onnx thực chất là một tệp nhị phân được mã hóa dựa trên chuẩn Google Protocol Buffers (.proto). Khi nạp tệp ONNX, các engine sẽ giải mã tệp này để tái tạo lại toàn bộ đồ thị tính toán dưới dạng cây đối tượng trong bộ nhớ RAM.
+
+Cấu trúc Đồ thị (Computational Graph): Gồm một tập hợp các NodeProto (đại diện cho các toán tử như Conv, Gemm, Relu, Softmax), TensorProto (lưu trữ trọng số - weights và bias), và ValueInfoProto (định nghĩa kiểu dữ liệu và kích thước shape của các tensor đầu vào/đầu ra/trung gian).
+
+1.2. Hệ thống Opset Version (Operator Set)
+ONNX quản lý các phiên bản toán tử thông qua Opset. Ví dụ: opset 14, opset 17.
+
+Khi chuyển đổi mô hình từ PyTorch sang ONNX, việc chọn phiên bản opset rất quan trọng. Nếu mô hình sử dụng các kiến trúc mới (như SwiGLU, FlashAttention trong LLM), cần dùng các phiên bản opset cao để ONNX hỗ trợ đầy đủ các toán tử đó, tránh lỗi không tương thích khi sang Inference Engine.
+
+1.3. Code Chi tiết: Kiểm tra cấu trúc và sửa đổi Shape động trong ONNX
+Python
+import onnx
+import onnx.checker
+
+# 1. Load tệp ONNX đã export
+model_path = "simple_cnn.onnx"
+onnx_model = onnx.load(model_path)
+
+# 2. Kiểm tra tính hợp lệ của đồ thị tính toán (Graph Sanity Check)
+try:
+    onnx.checker.check_model(onnx_model)
+    model_check_status = "Hợp lệ (Valid)"
+except Exception as e:
+    model_check_status = f"Lỗi cấu trúc: {e}"
+
+print(f"Trạng thái kiểm tra mô hình ONNX: {model_check_status}")
+
+# 3. Duyệt qua các Input của mô hình để kiểm tra kiểu dữ liệu và kích thước
+print("\n--- THÔNG TIN INPUT/OUTPUT NODES ---")
+for input_tensor in onnx_model.graph.input:
+    print(f"Input Name: {input_tensor.name}")
+    dim_list = [dim.dim_value if dim.dim_value != 0 else dim.dim_param for dim in input_tensor.type.tensor_type.shape.dim]
+    print(f"  Shape: {dim_list}")
+
+# 4. In thông tin tổng quan số lượng toán tử (Operators)
+op_types = {}
+for node in onnx_model.graph.node:
+    op_types[node.op_type] = op_types.get(node.op_type, 0) + 1
+
+print("\n--- THỐNG KÊ CÁC TOÁN TỬ TRONG ĐỒ THỊ ---")
+for op, count in op_types.items():
+    print(f"Operator '{op}': {count} nodes")
+2. ONNX Runtime (ORT)
+2.1. Kiến trúc cốt lõi: Execution Providers (EP) dưới góc nhìn hệ thống
+Cơ chế Fallback: Khi khởi tạo InferenceSession, ONNX Runtime quét qua danh sách các EP được cấu hình theo thứ tự ưu tiên (ví dụ: ['CUDAExecutionProvider', 'CPUExecutionProvider']).
+
+Nếu một toán tử trong đồ thị không được hỗ trợ bởi GPU (CUDA EP), ORT sẽ tự động fallback toán tử đó xuống CPUExecutionProvider. Quá trình này có thể gây ra hiện tượng tốn thời gian truyền dữ liệu qua lại giữa RAM hệ thống (Host) và VRAM của GPU (Device). Do đó, việc tối ưu hóa nhằm đảm bảo toàn bộ đồ thị nằm trọn trên một EP duy nhất là chìa khóa đạt hiệu năng tối đa.
+
+2.2. Các Kỹ thuật Tối ưu hóa Đồ thị (Graph Optimizations) của ORT
+Basic Optimizations: Xóa các node dư thừa, gộp các toán tử Identity, loại bỏ Dropout nodes (vì Dropout không hoạt động trong giai đoạn inference).
+
+Extended Optimizations: Gộp các chuỗi toán tử phức tạp hơn (ví dụ: Conv + Add + Relu thành FusedConv).
+
+Layout Optimizations: Chuyển đổi định dạng bố cục bộ nhớ mảng từ NCHW sang NHWC để tận dụng tối đa sức mạnh tính toán của Tensor Cores trên GPU NVIDIA.
+
+2.3. Code Chi tiết: Cấu hình Nâng cao và Đo đạc Đa luồng (Multi-threading) với ORT
+Python
+import onnxruntime as ort
+import numpy as np
+
+# 1. Cấu hình SessionOptions chuyên sâu cho Production Server
+opts = ort.SessionOptions()
+
+# Bật mức độ tối ưu hóa đồ thị cao nhất (Bao gồm cả gộp toán tử nâng cao)
+opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+# Đặt đường dẫn lưu đồ thị đã được tối ưu hóa ra đĩa để tăng tốc độ khởi động lần sau
+opts.optimized_model_filepath = "optimized_simple_cnn.onnx"
+
+# Cấu hình đa luồng xử lý trên CPU
+opts.intra_op_num_threads = 4  # Số luồng xử lý song song bên trong một toán tử lớn (VD: ma trận nhân ma trận)
+opts.inter_op_num_threads = 2  # Số luồng xử lý song song giữa các toán tử độc lập nhau trong đồ thị
+opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL  # Chạy tuần tự các node để giảm overhead chuyển đổi ngữ cảnh
+
+# 2. Khởi tạo session với danh sách EP ưu tiên kèm theo tùy chọn phần cứng (Provider Options)
+provider_options = [{
+    'device_id': 0,
+    'arena_extend_strategy': 'kNextPowerOfTwo',
+    'gpu_mem_limit': 2 * 1024 * 1024 * 1024, # Giới hạn tối đa 2GB VRAM
+    'cudnn_conv_algo_search': 'HEURISTIC',
+    'do_copy_in_default_stream': True
+}]
+
+available_providers = ort.get_available_providers()
+providers = [('CUDAExecutionProvider', provider_options[0])] if 'CUDAExecutionProvider' in available_providers else ['CPUExecutionProvider']
+
+print(f"Đang khởi tạo ONNX Runtime với providers: {providers}")
+session = ort.InferenceSession("simple_cnn.onnx", sess_options=opts, providers=providers)
+
+# 3. Thực thi suy luận an toàn với bộ nhớ đệm
+input_meta = session.get_inputs()[0]
+input_name = input_meta.name
+output_name = session.get_outputs()[0].name
+
+# Tạo dữ liệu giả lập chuẩn xác kiểu dữ liệu
+input_data = np.random.randn(1, 1, 28, 28).astype(np.float32)
+outputs = session.run([output_name], {input_name: input_data})
+
+print(f"Suy luận thành công! Kích thước kết quả đầu ra: {outputs[0].shape}")
+3. TensorFlow Lite (TFLite)
+3.1. Bản chất định dạng FlatBuffers & Ưu điểm trên Mobile
+Không cần Parsing/Deserialization: Khác với TensorFlow truyền thống (dùng Protocol Buffers phải tốn CPU để phân tích cú pháp và dựng lại object tree khi khởi động), TFLite dùng FlatBuffers. FlatBuffers cho phép truy cập trực tiếp cấu trúc dữ liệu trên bộ nhớ đệm thông qua cơ chế ánh xạ tệp (mmap), giúp mô hình khởi động gần như tức thời (instantaneous startup) – yếu tố sống còn cho các ứng dụng mobile bị giới hạn nghiêm ngặt về thời gian mở app.
+
+3.2. Cơ chế Lượng hóa Chuyên sâu (Quantization Deep-Dive)
+Post-Training Dynamic Range Quantization: Chuyển trọng số từ FP32 xuống INT8, giữ nguyên hoạt hóa ở dạng FP32. Giảm kích thước model 4x, tốc độ CPU nhanh hơn mà không cần tập dữ liệu hiệu chuẩn (calibration dataset).
+
+Full Integer Quantization (INT8 Quantization): Cả trọng số và hoạt hóa đều ép về INT8. Yêu cầu một tập dữ liệu đại diện nhỏ (Calibration Dataset) để tính toán dải giá trị cực đại/cực tiểu (min/max range) của từng activation.
+
+Float16 Quantization: Giảm trọng số xuống FP16, giảm 50% kích thước model, giữ độ chính xác gần như nguyên vẹn, cực kỳ tối ưu trên GPU của điện thoại thông minh.
+
+3.3. Code Chi tiết: Full INT8 Quantization với TFLite Converter
+Python
+import tensorflow as tf
+import numpy as np
+
+# 1. Xây dựng model Keras mẫu
+model = tf.keras.Sequential([
+    tf.keras.layers.InputLayer(input_shape=(28, 28, 1)),
+    tf.keras.layers.Conv2D(16, 3, activation='relu'),
+    tf.keras.layers.Flatten(),
+    tf.keras.layers.Dense(10)
+])
+
+# 2. Khởi tạo Converter từ Keras Model
+converter = tf.lite.TFLiteConverter.from_keras_model(model)
+
+# 3. Bật cấu hình tối ưu hóa toàn diện cho INT8
+converter.optimizations = [tf.lite.Optimize.DEFAULT]
+
+# 4. Định nghĩa hàm Representative Dataset phục vụ cho việc hiệu chuẩn (Calibration) dải giá trị INT8
+def representative_dataset_gen():
+    for _ in range(100):
+        # Tạo dữ liệu giả lập phân phối tương tự dữ liệu thực tế (Float32, dải từ 0 đến 1)
+        data = np.random.uniform(0.0, 1.0, (1, 28, 28, 1)).astype(np.float32)
+        yield [data]
+
+converter.representative_dataset = representative_dataset_gen
+
+# Ép buộc input/output của model chạy hoàn toàn ở định dạng INT8 (Phù hợp cho vi điều khiển / Edge TPU)
+converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+converter.inference_input_type = tf.int8
+converter.inference_output_type = tf.int8
+
+# 5. Thực hiện chuyển đổi và lưu file
+tflite_quant_model = converter.convert()
+with open("model_full_int8.tflite", "wb") as f:
+    f.write(tflite_quant_model)
+
+print("Đã chuyển đổi và lượng hóa thành công mô hình sang INT8 thuần túy!")
+4. Intel OpenVINO (Open Visual Inference and Neural Network Optimization)
+4.1. Kiến trúc Đồ họa & Định dạng IR mới (.xml + .bin)
+OpenVINO Intermediate Representation (IR): Mô hình sau khi chuyển đổi sẽ phân tách thành hai tệp:
+
+Tệp .xml: Mô tả cấu trúc đồ thị tính toán, các liên kết node và siêu dữ liệu.
+
+Tệp .bin: Lưu trữ toàn bộ trọng số và giá trị hằng số dưới dạng nhị phân thuần túy.
+
+Model Optimizer: Công cụ trung tâm thực hiện các tác vụ:
+
+Layer Fusion: Gộp các lớp như Convolution + Bias + Activation hoặc ScaleShift.
+
+Sub-graph Replacement: Thay thế các nhóm toán tử phức tạp bằng các kernel tối ưu hóa riêng cho tập lệnh phần cứng Intel.
+
+4.2. Khai thác Triệt để Phần cứng Intel (SIMD & AMX)
+AVX-512 & VNNI: Cho phép thực hiện các phép nhân tích lũy ma trận số nguyên (INT8 dot-product) trong một chu kỳ xung nhịp duy nhất, tăng tốc mạnh mẽ các mô hình thị giác máy tính và NLP.
+
+AMX (Advanced Matrix Extensions): Kiến trúc ma trận phần cứng mới trên các dòng CPU Intel Xeon thế hệ mới, mang lại hiệu năng tính toán AI gần tương đương card đồ họa chuyên dụng ngay trên nền tảng CPU.
+
+4.3. Code Chi tiết: Nạp OpenVINO IR, Cấu hình Device và Xử lý Bất đồng bộ (Async Inference)
+Python
+import openvino as ov
+import numpy as np
+
+# 1. Khởi tạo OpenVINO Core Runtime
+core = ov.Core()
+
+# Kiểm tra các thiết bị phần cứng Intel hiện có trên hệ thống
+devices = core.available_devices
+print(f"Các thiết bị phần cứng khả dụng cho OpenVINO: {devices}")
+
+# 2. Đọc mô hình trực tiếp (OpenVINO hỗ trợ đọc trực tiếp định dạng ONNX hoặc tệp .xml/.bin IR)
+model_path = "simple_cnn.onnx"
+model = core.read_model(model=model_path)
+
+# 3. Cấu hình các thuộc tính nâng cao cho thiết bị thực thi (Ví dụ: CPU)
+# Cấu hình số luồng xử lý và độ ưu tiên thông lượng (Throughput Hint)
+config = {
+    "PERFORMANCE_HINT": "THROUGHPUT",
+    "INFERENCE_NUM_THREADS": "4"
+}
+
+# 4. Biên dịch mô hình cho thiết bị mục tiêu ('CPU', 'GPU', hoặc 'NPU')
+compiled_model = core.compile_model(model=model, device_name="CPU", config=config)
+
+# 5. Tạo InferRequest (Hỗ trợ cả chế độ Đồng bộ Sync và Bất đồng bộ Async)
+infer_request = compiled_model.create_infer_request()
+
+# Chuẩn bị dữ liệu đầu vào
+input_tensor_shape = compiled_model.input(0).shape
+dummy_input = np.random.randn(*input_tensor_shape).astype(np.float32)
+
+# Chạy suy luận đồng bộ (Synchronous Inference)
+results = infer_request.infer({0: dummy_input})
+output_tensor = list(results.values())[0]
+
+print(f"OpenVINO Async/Sync Inference thành công! Shape kết quả: {output_tensor.shape}")
+5. Apache TVM
+5.1. Bản chất: Deep Learning Compiler & Kiến trúc Đa tầng (Relay IR -> TIR)
+Khác biệt cốt lõi so với Runtime: Các engine thông thường dựa vào một thư viện toán tử được viết sẵn (như cuDNN hay OneDNN). Nếu một mô hình có một toán tử tùy chỉnh hoặc kết hợp toán tử dị biệt, các engine truyền thống sẽ gặp khó khăn. Apache TVM là một Trình biên dịch (Compiler) đúng nghĩa: nó đọc mô hình, phân tích biểu thức toán học, tự động sinh ra mã nguồn C++/Assembly gốc và biên dịch trực tiếp thành tệp thư viện liên kết động (.so hoặc .dll) chuyên biệt cho phần cứng đích.
+
+Hệ thống IR hai tầng:
+
+Relay IR (High-level): Xử lý tối ưu hóa đồ thị tổng thể (như gộp hàm, loại bỏ dead code, quản lý kiểu dữ liệu).
+
+TIR - Tensor Intermediate Representation (Low-level): Xử lý các vòng lặp (loop optimization), tối ưu hóa bộ nhớ đệm cache, ánh xạ xuống mức thanh ghi phần cứng.
+
+5.2. Công nghệ Auto-Tuning (Ansor & MetaSchedule)
+Khi triển khai mô hình lên một phần cứng độc lạ (ví dụ: chip NPU nhúng tự thiết kế, FPGA, hoặc chip RISC-V), TVM sử dụng thuật toán Auto-Tuning để thử nghiệm hàng nghìn cấu hình tối ưu hóa vòng lặp khác nhau (loop tiling, unrolling, vectorization), từ đó tự động tìm ra "công thức chạy nhanh nhất" cho riêng con chip đó mà không cần chuyên gia viết code tối ưu thủ công.
+
+5.3. Code Chi tiết: Biên dịch Mô hình bằng Apache TVM Relay và Xuất Thư viện Mã máy
+Python
+import tvm
+from tvm import relay
+import onnx
+import numpy as np
+
+# 1. Tải mô hình ONNX
+onnx_model = onnx.load("simple_cnn.onnx")
+
+# 2. Định nghĩa hình dạng input và chuyển đổi sang Relay IR của TVM
+shape_dict = {"input": (1, 1, 28, 28)}
+mod, params = relay.frontend.from_onnx(onnx_model, shape_dict)
+
+# 3. Thiết lập mục tiêu phần cứng (Target Definition)
+# Ví dụ nhắm tới CPU x86 hỗ trợ tập lệnh AVX2, hoặc có thể cấu hình cho ARM / RISC-V
+target = tvm.target.Target("llvm -mcpu=skylake")
+dev = tvm.cpu(0)
+
+# 4. Quá trình biên dịch (Compilation Pass) với mức tối ưu cao nhất (Opt Level 3)
+print("Đang tiến hành biên dịch đồ thị tính toán thông qua Apache TVM Compiler...")
+with tvm.transform.PassContext(opt_level=3):
+    # Relay build sinh ra module mã máy thực thi trực tiếp
+    lib = relay.build(mod, target=target, params=params)
+
+# 5. Lưu thư viện mã máy biên dịch ra đĩa để tái sử dụng trong ứng dụng C++ hoặc Python production
+lib.export_library("compiled_tvm_model.so")
+print("Đã biên dịch và xuất tệp thư viện thành công ra 'compiled_tvm_model.so'!")
+
+# 6. Tải lại thư viện và thực thi suy luận bằng Graph Executor
+from tvm.contrib import graph_executor
+
+loaded_lib = tvm.runtime.load_module("compiled_tvm_model.so")
+module = graph_executor.GraphModule(loaded_lib["default"](dev))
+
+# Đưa dữ liệu đầu vào và chạy
+tvm_input_data = tvm.nd.array(np.random.randn(1, 1, 28, 28).astype("float32"), dev)
+module.set_input("input", tvm_input_data)
+module.run()
+
+tvm_output = module.get_output(0).asnumpy()
+print(f"TVM Compiled Execution Output Shape: {tvm_output.shape}")
