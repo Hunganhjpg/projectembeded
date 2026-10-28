@@ -1,0 +1,252 @@
+6. Python Performance
+Python là ngôn ngữ có năng suất phát triển cao và được sử dụng rộng rãi trong khoa học dữ liệu, trí tuệ nhân tạo (AI), xử lý ảnh và xây dựng các hệ thống tự động. Tuy nhiên, khi yêu cầu xử lý dữ liệu lớn hoặc tận dụng nhiều CPU, hiệu năng của chương trình Python có thể bị giới hạn bởi cách Python thực thi mã, đặc biệt là Global Interpreter Lock (GIL) trong CPython.
+Để tối ưu hiệu năng Python, cần hiểu mối quan hệ giữa Python Interpreter, GIL, Threading, Multiprocessing, CPU-bound, I/O-bound, cũng như các kỹ thuật như NumPy, vectorization, asynchronous programming, memory profiling và C/C++ extension.
+6.1. Python Interpreter
+Python source code không được CPU thực thi trực tiếp như mã máy C/C++. Với CPython, mã Python được xử lý bởi Python interpreter, trong đó mã nguồn được biên dịch thành bytecode và sau đó được interpreter thực thi.
+6.2. Global Interpreter Lock (GIL)
+6.2.1. GIL là gì?
+Global Interpreter Lock (GIL) là một cơ chế của CPython nhằm bảo vệ trạng thái nội bộ của Python interpreter.
+Trong cấu hình CPython có GIL, tại một thời điểm chỉ một thread có thể thực thi Python bytecode. Vì vậy, việc tạo nhiều thread không đồng nghĩa với việc nhiều đoạn Python code CPU-bound sẽ thực sự chạy song song trên nhiều core CPU.
+Đối với CPU-bound pure Python, thêm thread thường không mang lại khả năng tận dụng nhiều core như mong đợi vì GIL giới hạn việc thực thi Python bytecode đồng thời. Python documentation khuyến nghị multiprocessing hoặc ProcessPoolExecutor khi cần tận dụng nhiều CPU cho các tác vụ tính toán.
+6.2.2. GIL có phải lúc nào cũng làm Python chậm không?
+Không.
+GIL chủ yếu ảnh hưởng đến việc nhiều thread cùng thực thi Python bytecode.
+Nếu chương trình đang chờ: File I/O,  Network I/O, Database,  Socket, API response ,Các thao tác blocking khác 
+thì threading vẫn có thể rất hữu ích. Ngoài ra, một số thư viện native có thể thực hiện phần tính toán bên ngoài Python interpreter và có thể giải phóng GIL trong những đoạn phù hợp. Vì vậy, không nên kết luận đơn giản rằng "Python có GIL nên không thể chạy song song".
+6.3. CPU-bound và I/O-bound
+Trong quá trình phân tích và tối ưu hiệu năng của một chương trình Python, việc xác định loại workload là một bước quan trọng trước khi lựa chọn mô hình xử lý đồng thời hoặc song song. Hai nhóm workload phổ biến là CPU-bound và I/O-bound. Sự khác biệt giữa hai nhóm này nằm ở yếu tố giới hạn thời gian thực thi: CPU-bound bị giới hạn chủ yếu bởi năng lực tính toán của bộ xử lý, trong khi I/O-bound dành phần lớn thời gian để chờ các thao tác nhập/xuất hoàn thành.
+Việc phân biệt hai loại workload có ý nghĩa trực tiếp đối với việc lựa chọn threading, multiprocessing, asyncio hoặc các kỹ thuật tối ưu ở tầng native. Trong CPython, GIL cũng là một yếu tố cần được xem xét đối với các tác vụ CPU-bound được triển khai bằng Python thuần. Theo tài liệu chính thức của Python, threading đặc biệt phù hợp với các tác vụ I/O-bound, trong khi multiprocessing cho phép tận dụng nhiều bộ xử lý bằng cách sử dụng các process độc lập.
+6.3.1. CPU-bound
+CPU-bound là loại workload trong đó thời gian thực thi của chương trình chủ yếu được sử dụng cho các phép tính trên CPU. Trong trường hợp này, bộ xử lý phải thực hiện một số lượng lớn phép toán và CPU trở thành yếu tố giới hạn hiệu năng của hệ thống.
+Một ví dụ đơn giản là chương trình tính tổng của một số lượng rất lớn các số nguyên:
+total = 0
+for i in range(100_000_000):
+    total += i
+print(total)
+Trong chương trình trên, CPU phải thực hiện khoảng 100 triệu lần lặp và các phép toán cộng tương ứng. Trong quá trình này, chương trình không phải chờ dữ liệu từ mạng, ổ đĩa hoặc một thiết bị bên ngoài mà chủ yếu sử dụng tài nguyên tính toán của CPU.
+Một ví dụ có ý nghĩa thực tế hơn là xử lý ảnh. Giả sử một chương trình phải thực hiện phép biến đổi trên từng pixel của ảnh:
+for y in range(height):
+    for x in range(width):
+        image[y][x] = image[y][x] * 1.2
+Đối với ảnh có kích thước 1920 × 1080, chương trình phải xử lý khoảng 2,07 triệu pixel. Nếu mỗi pixel cần thực hiện nhiều phép toán, số lượng phép tính sẽ tăng đáng kể. Khi đó, thời gian thực thi chủ yếu phụ thuộc vào khả năng tính toán của CPU.
+Các workload CPU-bound thường xuất hiện trong:
+•	Xử lý ảnh và video;
+•	Tính toán ma trận;
+•	Phân tích dữ liệu số;
+•	Mã hóa và giải mã dữ liệu;
+•	Các thuật toán tính toán khoa học;
+•	Một số giai đoạn preprocessing hoặc inference của hệ thống AI.
+Đối với CPython có GIL, việc sử dụng nhiều thread cho CPU-bound workload thuần Python không nhất thiết làm tăng hiệu năng theo số lượng CPU core, vì tại một thời điểm chỉ một thread có thể thực thi Python bytecode. Python documentation khuyến nghị sử dụng multiprocessing hoặc ProcessPoolExecutor khi cần tận dụng tài nguyên của hệ thống đa lõi cho các workload phù hợp.
+6.3.2. I/O-bound
+I/O-bound là loại workload trong đó chương trình dành phần lớn thời gian để chờ các thao tác nhập/xuất hoàn thành thay vì thực hiện các phép tính trên CPU. Các thao tác I/O có thể bao gồm truy cập hệ thống tệp, giao tiếp mạng, truy vấn cơ sở dữ liệu, giao tiếp socket hoặc chờ phản hồi từ một dịch vụ bên ngoài.
+Ví dụ, xét một chương trình phải tải dữ liệu từ một máy chủ thông qua mạng. Thời gian thực thi của chương trình không chỉ phụ thuộc vào tốc độ CPU mà còn phụ thuộc vào tốc độ mạng và thời gian phản hồi của máy chủ.
+import time
+def download_data(name):
+    print("Downloading:", name)
+    # Mô phỏng thời gian chờ dữ liệu từ network
+   time.sleep(2)
+    print(name, "completed")
+download_data("image_01.jpg")
+Trong ví dụ này, time.sleep(2) được sử dụng để mô phỏng khoảng thời gian chương trình phải chờ dữ liệu. Trong một ứng dụng thực tế, khoảng thời gian này có thể tương ứng với việc chờ server trả về dữ liệu hoặc chờ một thao tác đọc/ghi hoàn thành.
+Trong trường hợp này, threading hoặc asyncio có thể được sử dụng để tăng mức độ concurrency. Khi một tác vụ đang chờ I/O, chương trình có thể chuyển sang xử lý tác vụ khác thay vì để CPU phải chờ một cách không hiệu quả. Python documentation xác định threading là mô hình phù hợp cho nhiều tác vụ I/O-bound, trong khi asyncio được thiết kế đặc biệt cho concurrency và asynchronous I/O.
+Ví dụ sử dụng threading:
+import threading
+import time
+
+def download_data(name):
+    print("Downloading:", name)
+
+    time.sleep(2)
+    print(name, "completed")
+
+t1 = threading.Thread(
+    target=download_data,
+    args=("image_01.jpg",)
+)
+t2 = threading.Thread(
+    target=download_data,
+    args=("image_02.jpg",)
+)
+
+t1.start()
+t2.start()
+
+t1.join()
+t2.join()
+Trong trường hợp này, hai thread có thể cùng tồn tại trong một process. Khi một thread đang chờ thao tác I/O, thread còn lại có thể tiếp tục thực hiện công việc. Vì vậy, tổng thời gian có thể giảm đáng kể so với việc thực hiện hai thao tác tuần tự, mặc dù mức cải thiện thực tế phụ thuộc vào loại I/O và cách triển khai.
+6.3.3. Phân loại workload trong một hệ thống AI
+Trong các hệ thống AI, CPU-bound và I/O-bound thường xuất hiện đồng thời. Ví dụ, một hệ thống nhận ảnh từ camera, thực hiện preprocessing, inference và gửi kết quả đến máy chủ có thể được mô hình hóa như sau:
+ 
+6.3.4. Mối quan hệ giữa CPU-bound, I/O-bound và GIL
+GIL là một yếu tố đặc biệt quan trọng khi phân tích hiệu năng của CPython. Trong cấu hình CPython có GIL, chỉ một thread tại một thời điểm có thể thực thi Python bytecode. Vì vậy, việc tạo nhiều thread không đồng nghĩa với việc một CPU-bound Python program sẽ đạt được khả năng song song tương ứng với số lượng CPU core.
+Ngược lại, đối với I/O-bound workload, thread thường vẫn hữu ích bởi chương trình dành nhiều thời gian chờ các thao tác bên ngoài. Khi một tác vụ đang chờ I/O, các tác vụ khác có thể tiếp tục được xử lý. Đây là một trong những trường hợp sử dụng chính của threading trong Python.
+Đối với CPU-bound workload cần tận dụng nhiều CPU core, multiprocessing sử dụng các process độc lập và do đó có thể tránh giới hạn GIL theo cách của threading.
+Ngoài ra, asyncio cung cấp mô hình concurrency dựa trên async/await, đặc biệt phù hợp với các ứng dụng có nhiều hoạt động network hoặc I/O.
+6.4. I/O-bound
+I/O-bound (Input/Output-bound) là loại chương trình dành phần lớn thời gian để chờ các hoạt động nhập/xuất dữ liệu thay vì thực hiện tính toán trên CPU. Các hoạt động I/O phổ biến gồm đọc/ghi file, truyền dữ liệu qua mạng, truy vấn cơ sở dữ liệu, giao tiếp với camera hoặc các thiết bị ngoại vi.
+Đặc điểm của I/O-bound là thời gian chờ I/O thường lớn hơn thời gian xử lý CPU. Vì vậy, nếu chương trình xử lý tuần tự, CPU có thể phải chờ trong khi dữ liệu đang được đọc hoặc truyền. Việc sử dụng Threading hoặc Asyncio có thể cho phép chương trình xử lý các tác vụ khác trong thời gian chờ này.
+Ví dụ: Một chương trình cần gửi 5 request đến server, mỗi request mất khoảng 2 giây để nhận phản hồi. Nếu xử lý tuần tự, tổng thời gian có thể gần 10 giây. Nếu các request được thực hiện đồng thời, thời gian có thể giảm xuống gần 2 giây, tùy thuộc vào điều kiện mạng và server.
+Xử lí tuần tự và xừ lí đồng thời:
+ 
+Đối với I/O-bound, Threading phù hợp khi sử dụng các hàm I/O blocking, trong khi Asyncio phù hợp với các ứng dụng có nhiều thao tác mạng hoặc I/O đồng thời. Do đó, việc xử lý đồng thời giúp giảm thời gian chờ và cải thiện khả năng đáp ứng của hệ thống.
+6.5. GIL và ảnh hưởng đến hiệu năng Python
+GIL (Global Interpreter Lock) là một cơ chế của CPython nhằm đảm bảo tại một thời điểm chỉ một thread thực thi Python bytecode trong interpreter. GIL giúp đơn giản hóa việc quản lý bộ nhớ của CPython nhưng có ảnh hưởng đến khả năng xử lý đa luồng đối với các chương trình CPU-bound.
+ 
+
+Đối với CPU-bound, các thread phải thực hiện nhiều phép tính Python nên GIL có thể trở thành yếu tố hạn chế hiệu năng. Vì vậy, việc tăng số lượng thread không đồng nghĩa với việc chương trình sẽ chạy nhanh hơn tương ứng.
+Trong trường hợp này, Multiprocessing thường phù hợp hơn vì mỗi process có interpreter riêng và có thể tận dụng nhiều CPU core. Ngược lại, đối với I/O-bound, Threading vẫn hiệu quả vì thread thường dành nhiều thời gian chờ I/O. Trong lúc một thread đang chờ network hoặc file, thread khác có thể tiếp tục thực hiện công việc.
+Trong hệ thống AI, GIL cần được xem xét cùng với đặc điểm của từng công đoạn. Ví dụ, nhận ảnh và giao tiếp gRPC thường là I/O-bound, trong khi xử lý ảnh có thể là CPU-bound và AI inference có thể là CPU/GPU-bound. Vì vậy, một hệ thống thực tế có thể kết hợp nhiều phương pháp xử lý khác nhau thay vì chỉ sử dụng Threading.
+6.6. Multiprocessing
+Multiprocessing tạo nhiều process độc lập thay vì nhiều thread trong cùng một process.
+Mỗi process có interpreter và không gian bộ nhớ riêng. Vì vậy, multiprocessing có thể tránh giới hạn GIL bằng cách chạy các process độc lập trên nhiều CPU core. Python documentation mô tả đây là một cách để tận dụng nhiều processor cho các workload phù hợp.
+Ví dụ:
+from multiprocessing import Process
+def calculate(name):
+    total = 0
+    for i in range(10_000_000):
+        total += i
+    print(name, "finished:", total)
+if __name__ == "__main__":
+
+    p1 = Process(target=calculate, args=("Process 1",))
+    p2 = Process(target=calculate, args=("Process 2",))
+
+    p1.start()
+    p2.start()
+
+    p1.join()
+    p2.join()
+    print("All processes finished")
+Nhược điểm
+Multiprocessing có overhead cao hơn threading do:
+•	Tạo process 
+•	Quản lý process 
+•	Trao đổi dữ liệu giữa process 
+•	Serialization/pickling trong nhiều trường hợp 
+•	Sử dụng thêm bộ nhớ 
+Do đó không phải workload nào cũng nên chuyển sang multiprocessing
+6.7. Threading vs Multiprocessing
+Đặc điểm	Threading	Multiprocessing
+Đơn vị thực thi	Thread	Process
+Bộ nhớ	Chia sẻ	Riêng biệt
+GIL	Bị ảnh hưởng trong CPython thường	Không bị giới hạn theo cách threading
+CPU-bound	Không phù hợp cho pure Python trong CPython có GIL	Phù hợp
+I/O-bound	Rất phù hợp	Có thể dùng nhưng thường nặng hơn
+Tạo đối tượng	Nhẹ hơn	Nặng hơn
+Trao đổi dữ liệu	Dễ hơn	Phức tạp hơn
+Tận dụng nhiều CPU core	Hạn chế với Python bytecode khi có GIL	Có
+Ví dụ	Network, file, API	Image processing, CPU calculation
+
+6.8. Async Programming
+asyncio là framework concurrency dựa trên async/await, đặc biệt phù hợp với các ứng dụng I/O-bound và network.
+Thay vì tạo một thread cho mỗi tác vụ:
+Thread 1 → waiting network
+Thread 2 → waiting network
+Thread 3 → waiting network
+Thread 4 → waiting network
+asyncio sử dụng event loop để chuyển sang task khác trong lúc một task đang chờ I/O:
+Ví dụ:
+import asyncio
+async def download(name):
+    print(name, "started")
+    await asyncio.sleep(2)
+
+    print(name, "finished")
+async def main():
+
+    await asyncio.gather(
+        download("Image 1"),
+        download("Image 2"),
+        download("Image 3")
+    )
+asyncio.run(main())
+
+6.9. NumPy và Vectorization
+Một trong những kỹ thuật quan trọng nhất để tăng hiệu năng Python là vectorization.
+Cách chậm:
+a = [1, 2, 3, 4, 5]
+result = []
+for x in a:
+    result.append(x * 2)
+Cách vectorized:
+import numpy as np
+a = np.array([1, 2, 3, 4, 5])
+result = a * 2
+NumPy thực hiện phép toán trên toàn bộ array bằng các routine được triển khai ở tầng native.
+NumPy documentation mô tả broadcasting là một cơ chế giúp vectorize các phép toán và cho phép phần looping được thực hiện trong C thay vì Python
+
+6.11. Broadcasting
+Broadcasting cho phép NumPy thực hiện phép toán giữa các array có shape tương thích mà không cần viết vòng lặp Python.
+Ví dụ
+import numpy as np
+image = np.array([
+    [10, 20, 30],
+    [40, 50, 60]
+])
+result = image * 2
+print(result)
+Broadcasting giúp viết code ngắn hơn và thường hiệu quả hơn vì các phép toán được thực hiện ở tầng C/native. Tuy nhiên, broadcasting không phải lúc nào cũng tối ưu: trong một số trường hợp nó có thể tạo ra các intermediate array lớn và làm tăng mức sử dụng bộ nhớ.
+
+6.12. Avoid Python Loops
+Không nên hiểu nguyên tắc này là:
+"Tuyệt đối không được dùng vòng for trong Python."
+Điều chính xác hơn là:
+Tránh các vòng lặp Python thuần khi có thể thay thế bằng các phép toán vectorized hoặc thư viện native phù hợp.
+Ví dụ:
+# Python loop
+for i in range(len(data)):
+    data[i] = data[i] * 2
+có thể chuyển thành:
+# Vectorization
+data = data * 2
+Tuy nhiên, nếu vectorization tạo ra lượng dữ liệu trung gian quá lớn thì một vòng lặp có kiểm soát đôi khi lại sử dụng bộ nhớ tốt hơn. NumPy cũng lưu ý rằng broadcasting có thể trở nên kém hiệu quả nếu tạo intermediate array lớn.
+
+6.13. Memory Profiling
+Tối ưu hiệu năng không chỉ là tối ưu CPU mà còn phải theo dõi RAM và memory allocation.
+Một chương trình có thể chạy nhanh nhưng tiêu thụ quá nhiều RAM:
+
+import tracemalloc
+tracemalloc.start()
+data = [i for i in range(1_000_000)]
+current, peak = tracemalloc.get_traced_memory()
+print("Current memory:", current)
+print("Peak memory:", peak)
+tracemalloc.stop()
+tracemalloc có thể ghi nhận vị trí allocation, thống kê lượng memory được cấp phát theo file/dòng và so sánh snapshot để hỗ trợ tìm memory leak hoặc allocation bất thường. 
+
+6.14. C/C++ Extension
+Khi Python vẫn chưa đủ nhanh, một hướng tiếp cận là chuyển phần computation-intensive sang C hoặc C++.
+Mô hình:
+Python Application
+       │
+       │
+ function call
+       ▼
+C/C++ Extension
+       │
+       ▼
+Optimized Native Code
+       │
+       ▼
+      CPU
+Python cung cấp C API để xây dựng extension module bằng C/C++. Các extension này có thể triển khai các kiểu dữ liệu/hàm native hoặc gọi trực tiếp các thư viện và system calls.
+
+6.15. SIMD và Multi-threading ở tầng native
+Sau khi chuyển phần tính toán xuống C/C++, có thể tiếp tục tối ưu bằng:
+•	SIMD 
+•	Multi-threading 
+•	Cache optimization 
+•	Compiler optimization 
+•	GPU acceleration
+Như vậy, Python không nhất thiết phải tự thực hiện từng phép tính. Python có thể điều khiển một backend native được tối ưu hóa.
+
+6.16. Python Performance Optimization Pipeline
+Một quy trình tối ưu hợp lý có thể được trình bày như sau:
+ 
+Điểm quan trọng là không nên tối ưu một cách mù quáng. Cần xác định bottleneck trước bằng profiling, sau đó mới quyết định có cần vectorization, multiprocessing, asynchronous programming hoặc native extension hay không.
+
+6.17. GIL trong Python hiện đại
+Một điểm cập nhật quan trọng cho báo cáo:
+Trong các phiên bản CPython thông thường, GIL vẫn tồn tại và ảnh hưởng đến việc thực thi Python bytecode bằng nhiều thread. Tuy nhiên, từ Python 3.13, CPython đã hỗ trợ một cấu hình free-threaded cho phép chạy mà không cần GIL, nhằm hỗ trợ true parallelism giữa các thread. Đây là một cấu hình/build riêng và không phải mặc định
+ 
+
