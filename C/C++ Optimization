@@ -1,0 +1,119 @@
+1. Cờ biên dịch nâng cao (Compiler Flags)
+Khi biên dịch mã C/C++, việc tận dụng cờ biên dịch của gcc/g++ hoặc clang giúp tăng hiệu năng từ 2x - 10x mà không cần sửa mã nguồn.
+‘-O2’: Tối ưu hóa mức độ vừa phải (loop unrolling cơ bản, instruction scheduling).
+‘-O3’: Tối ưu hóa tối đa (tự động vector hóa vòng lặp auto-vectorization, inline hàm aggressively).
+-’march=native’: Bật tất cả các tập lệnh SIMD mà CPU hiện tại hỗ trợ (AVX2, AVX-512, FMA).
+-’fopenmp’: Bật hỗ trợ song song hóa đa nhân với OpenMP.
+-’ffast-math’: Bỏ qua một số quy tắc IEEE 754 khắt khe để tăng tốc phép toán số thực (rất phù hợp cho AI/DL).
+
+Bash
+g++ -O3 -march=native -ffast-math -fopenmp -shared -fPIC -std=c++17 module.cpp -o module.so
+ 
+
+
+
+
+2. Memory Alignment & Cache Optimization
+CPU đọc dữ liệu từ RAM theo từng Cache Line (thường là 64 bytes). Nếu dữ liệu không được căn chỉnh (misaligned), CPU phải thực hiện 2 lần đọc bộ nhớ thay vì 1.
+Căn chỉnh bộ nhớ (Memory Alignment): Đảm bảo địa chỉ con trỏ chia hết cho 32 bytes (AVX2) hoặc 64 bytes (AVX-512).
+Cache Locality: Truy cập mảng theo thứ tự hàng (Row-Major) để tận dụng Spatial Locality, tránh Cache Miss.
+
+C++
+#include <cstdlib>
+// Cấp phát mảng float được căn chỉnh 64-byte cho SIMD AVX-512size_t size = 1024 * 1024 * sizeof(float);float* data = (float*)aligned_alloc(64, size);
+// Giải phóng bộ nhớ sau khi dùngfree(data);
+ 
+
+
+
+
+
+
+3. SIMD Intrinsics (AVX2 / AVX-512)
+Thao tác dữ liệu song song trên một câu lệnh (Single Instruction, Multiple Data). AVX2 cho phép xử lý 8 số float (32-bit) cùng lúc trong một thanh ghi 256-bit (__m256).
+Ví dụ: Cộng 2 mảng float bằng AVX2 SIMD
+ 
+C++
+#include <immintrin.h> // Thu viện chứa AVX Intrinsics
+void vector_add_avx(const float* a, const float* b, float* result, int n) {
+    // Mỗi vòng lặp xử lý 8 element float (256 bits)
+    for (int i = 0; i < n; i += 8) {
+        __m256 va = _mm256_loadu_ps(&a[i]);  // Load 8 floats từ a
+        __m256 vb = _mm256_loadu_ps(&b[i]);  // Load 8 floats từ b
+        __m256 vres = _mm256_add_ps(va, vb); // Cộng 8 cặp số đồng thời
+        _mm256_storeu_ps(&result[i], vres);  // Lưu 8 kết quả vào result
+    }
+}
+
+
+
+
+4. Đa luồng mức phần cứng với OpenMP
+OpenMP cho phép phân chia vòng lặp tính toán ra nhiều nhân CPU (Multi-core) chỉ bằng các chỉ thị tiền xử lý (#pragma).
+ 
+
+C++
+#include <omp.h>
+void parallel_matrix_multiply(const float* A, const float* B, float* C, int N) {
+    // Tự động chia các vòng lặp cho tất cả CPU Cores có sẵn
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            float sum = 0.0f;
+            for (int k = 0; k < N; ++k) {
+                sum += A[i * N + k] * B[k * N + j];
+            }
+            C[i * N + j] = sum;
+        }
+    }
+}
+5. Cầu nối Python $\leftrightarrow$ C++ không Copy Bộ Nhớ (Zero-Copy with PyBind11)
+Để đưa mã C++ đã tối ưu vào dự án Python AI mà không làm giảm hiệu năng do sao chép dữ liệu, sử dụng PyBind11 với cơ chế chia sẻ con trỏ trỏ trực tiếp vào NumPy Array (py::array_t).
+
+Mã C++ (fast_math.cpp):
+C++
+#include <pybind11/pybind11.h>
+#include <pybind11/numpy.h>
+#include <immintrin.h>
+#include <omp.h>
+namespace py = pybind11;
+// Hàm nhân vector tối ưu kết hợp OpenMP + SIMD AVX2
+void fast_vector_add(py::array_t<float> input_a, py::array_t<float> input_b, py::array_t<float> output) {
+    auto buf_a = input_a.request();
+    auto buf_b = input_b.request();
+    auto buf_out = output.request();
+
+    float* ptr_a = static_cast<float*>(buf_a.ptr);
+    float* ptr_b = static_cast<float*>(buf_b.ptr);
+    float* ptr_out = static_cast<float*>(buf_out.ptr);
+    size_t size = buf_a.size;
+
+    #pragma omp parallel for
+    for (size_t i = 0; i < size; i += 8) {
+        __m256 va = _mm256_loadu_ps(&ptr_a[i]);
+        __m256 vb = _mm256_loadu_ps(&ptr_b[i]);
+        __m256 vres = _mm256_add_ps(va, vb);
+        _mm256_storeu_ps(&ptr_out[i], vres);
+    }
+}
+
+PYBIND11_MODULE(fast_math, m) {
+    m.doc() = "C++ High Performance Math Module for Python";
+    m.def("fast_vector_add", &fast_vector_add, "Add two vectors using SIMD and OpenMP");
+}
+
+Sử dụng trực tiếp trong Python (main.py):
+Python
+import numpy as np
+import fast_math  # Module C++ sau khi compile bằng PyBind11
+
+# Tạo dữ liệu lớn 8 triệu phần tử
+N = 8_000_000
+a = np.ones(N, dtype=np.float32)
+b = np.ones(N, dtype=np.float32) * 2.0
+result = np.zeros(N, dtype=np.float32)
+
+# Gọi hàm C++ tính toán trực tiếp trên RAM của NumPy (Zero-copy)
+fast_math.fast_vector_add(a, b, result)
+print("Kết quả 5 phần tử đầu:", result[:5])  # In ra [3. 3. 3. 3. 3.]
+
