@@ -1,1 +1,672 @@
+3.1. Deploying an IoT System Using ESP32 and Linux IPC
+3.1.1. Overview of the Deployment Process
+The system is built on an IoT model, combining the ESP32-S embedded device with an Ubuntu Linux server to collect, transmit, and process sensor data. The ESP32-S reads temperature and humidity data from the DHT22 sensor, then packages the data as JSON and sends it to the server over Wi-Fi using an HTTPS connection. On the server, Flask receives the request and uses an inter-process communication (IPC) mechanism through a Queue to pass the data to the Worker process for processing.
+After processing is complete, the Worker returns the result to Flask through an output Queue. Flask packages the result into a JSON response and sends it back to the ESP32-S. The device uses the received information to display the temperature status on a 16×2 LCD connected over I2C.
+The deployment process is organized into the following main stages:
+1.	Assemble the hardware and determine the connection pins.
+2.	Set up the programming environment and build the ESP32 program in the Arduino IDE.
+3.	Set up the Python and Flask environment on Ubuntu Linux.
+4.	Build the Worker process and the IPC Queue mechanism.
+5.	Test the Flask server in the local environment.
+6.	Create a Cloudflare Quick Tunnel to connect the ESP32 to the server.
+7.	Integrate the ESP32 with the server and test the entire data flow.
+8.	Collect performance figures and evaluate the results.
+
+3.1.2 Hardware Assembly
+  Components Used
+Component	Function
+ESP32-S	Central controller, reads the sensor and connects to Wi-Fi
+DHT22	Collects temperature and humidity
+LCD 16×2 I2C	Displays sensor data and processing results
+Breadboard, jumper wires	Connects the modules
+Computer running Ubuntu Linux	Runs the Flask server and the Worker process
+
+Wiring Diagram
+The connections are configured according to the Arduino program as follows:
+Module	Module Pin	ESP32 Pin
+DHT22	+ / VCC	3V3
+DHT22	out / DATA	GPIO15
+DHT22	− / GND	GND
+LCD I2C	SDA	GPIO21
+LCD I2C	SCL	GPIO22
+LCD I2C	GND	GND, as appropriate for the module
+LCD I2C	VCC	Vin
+
+Using I2C communication reduces the number of signal lines required between the ESP32-S and the LCD. According to the program configuration, the display has the I2C address 0x27 and a display size of 16 columns × 2 rows.
+ 
+Figure 3.1.2.1. Model of the ESP32-S hardware
+
+ 
+Figure 3.1.2.2.  Model of the DHT22 sensor
+
+ 
+Figure 3.1.2.3.  Model of the 16×2 I2C LCD.
+
+3.2 Programming the ESP32 with the Arduino IDE
+3.2.1. Environment Setup
+The Arduino IDE is used as the development environment for the ESP32-S program. Before compiling and uploading the program, you need to install the ESP32 support package, select the correct board type and connection port, and add the libraries needed for sensor, LCD, Wi-Fi, and HTTPS communication. The specific configuration steps are as follows:
+1.	Install the Arduino IDE.
+2.	Install the ESP32 support package in the Boards Manager.
+3.	Select the board type that is compatible with the ESP32-S being used.
+4.	Connect the ESP32 to the computer through a USB cable.
+5.	Select the corresponding COM port in the Port menu.
+6.	Install the required libraries through the Library Manager.
+The libraries used in the program include:
+•	WiFi.h: Wi-Fi connection.
+•	HTTPClient.h: sending HTTP requests.
+•	WiFiClientSecure.h: establishing HTTPS connections.
+•	Wire.h: I2C communication.
+•	LiquidCrystal_I2C.h: LCD control.
+•	DHTesp.h: reading DHT22 sensor data.
+•	math.h: supports checking for invalid numeric values through isnan().
+
+3.2.2. Operating Principle of the Program
+The program that controls the ESP32-S is organized according to the standard Arduino structure, consisting of two main functions: setup() and loop().
+The setup() function is responsible for initializing the DHT22 sensor, configuring the LCD, and establishing the Wi-Fi connection. When the connection succeeds, the IP address of the ESP32-S is printed to the Serial Monitor to help check the network status during testing.
+The loop() function runs continuously throughout operation. In each cycle, the program performs the following functions:
+1.	Check the Wi-Fi connection status.
+2.	Read the temperature and humidity from the DHT22.
+3.	Check whether the data is valid.
+4.	Display the sensor data on the LCD.
+5.	Package the data as JSON.
+6.	Send an HTTP POST to the Flask server over HTTPS.
+7.	Receive the response from the server and determine the temperature status.
+8.	Display the result on the LCD and log the timing measurements to the Serial Monitor.
+If the sensor data is invalid, the program logs the error on the Serial Monitor and shows the message DHT22 ERROR on the LCD. If sending the request or receiving the response from the server is unsuccessful, the device displays the corresponding error status to help identify the cause.
+3.2.3. Arduino Program
+The program below integrates the ESP32, DHT22, LCD, Wi-Fi, and HTTPS. Before use, replace the Wi-Fi name, password, and Cloudflare address with working information. 
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <DHTesp.h>
+#include <math.h>
+
+// PIN CONFIGURATION
+#define DHT_PIN 15
+#define LCD_SDA 21
+#define LCD_SCL 22
+
+// DEVICES
+DHTesp dht;
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// WIFI CONFIGURATION
+const char* ssid = "YOUR_WIFI_SSID";
+const char* password = "YOUR_WIFI_PASSWORD";
+
+// CLOUDFLARE TUNNEL
+const char* serverURL =
+  "https://YOUR-TUNNEL.trycloudflare.com/data";
+
+// SENSOR DATA
+float temperature = 0.0;
+float humidity = 0.0;
+
+// SETUP
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  Serial.println();
+  Serial.println("=== ESP32 IoT System ===");
+
+  // Initialize DHT22
+  dht.setup(DHT_PIN, DHTesp::DHT22);
+
+  Serial.print("DHT sensor: ");
+  Serial.println(dht.getStatusString());
+
+  // Initialize LCD
+  Wire.begin(LCD_SDA, LCD_SCL);
+  lcd.init();
+  lcd.backlight();
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("ESP32 IoT");
+  lcd.setCursor(0, 1);
+  lcd.print("Starting...");
+
+  // Connect Wi-Fi
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  Serial.print("Connecting Wi-Fi");
+
+  int attempts = 0;
+
+  while (WiFi.status() != WL_CONNECTED &&
+         attempts < 40) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+
+  lcd.clear();
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("\nWi-Fi connection failed!");
+
+    lcd.setCursor(0, 0);
+    lcd.print("WIFI ERROR");
+    lcd.setCursor(0, 1);
+    lcd.print("Check SSID/PW");
+
+    return;
+  }
+
+  Serial.println("\nWi-Fi connected!");
+  Serial.print("ESP32 IP: ");
+  Serial.println(WiFi.localIP());
+
+  lcd.setCursor(0, 0);
+  lcd.print("Wi-Fi Connected");
+  lcd.setCursor(0, 1);
+  lcd.print("System Ready");
+
+  delay(1500);
+}
+
+// LOOP
+void loop() {
+  // Check Wi-Fi
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println(
+      "Wi-Fi disconnected. Reconnecting..."
+    );
+
+    WiFi.reconnect();
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("WIFI RECONNECT");
+
+    delay(3000);
+    return;
+  }
+
+  // Read DHT22
+  TempAndHumidity data =
+    dht.getTempAndHumidity();
+
+  Serial.print("DHT status: ");
+  Serial.println(dht.getStatusString());
+
+  temperature = data.temperature;
+  humidity = data.humidity;
+
+  // Validate sensor data
+  if (isnan(temperature) || isnan(humidity)) {
+    Serial.println("DHT22 read failed!");
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("DHT22 ERROR");
+    lcd.setCursor(0, 1);
+    lcd.print("Check wiring");
+
+    delay(2500);
+    return;
+  }
+
+  // Print sensor data
+  Serial.println("------------------------");
+
+  Serial.print("Temperature: ");
+  Serial.print(temperature, 1);
+  Serial.println(" C");
+
+  Serial.print("Humidity: ");
+  Serial.print(humidity, 1);
+  Serial.println(" %");
+
+  // Display sensor data
+  lcd.clear();
+
+  lcd.setCursor(0, 0);
+  lcd.print("Temp: ");
+  lcd.print(temperature, 1);
+  lcd.write(223);
+  lcd.print("C");
+
+  lcd.setCursor(0, 1);
+  lcd.print("Hum: ");
+  lcd.print(humidity, 1);
+  lcd.print("%");
+
+  // Create JSON payload
+  String jsonData =
+    "{\"temperature\":" +
+    String(temperature, 2) +
+    ",\"humidity\":" +
+    String(humidity, 1) +
+    "}";
+
+  Serial.print("JSON: ");
+  Serial.println(jsonData);
+
+  // HTTPS connection
+  WiFiClientSecure client;
+
+  // Development/demo only
+  // Production requires certificate validation
+  client.setInsecure();
+
+  HTTPClient http;
+  http.setConnectTimeout(10000);
+  http.setTimeout(10000);
+
+  Serial.println("Sending data to Ubuntu server...");
+
+  unsigned long startTime = millis();
+
+  if (!http.begin(client, serverURL)) {
+    Serial.println("HTTP initialization failed!");
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("SERVER ERROR");
+    lcd.setCursor(0, 1);
+    lcd.print("HTTP BEGIN");
+
+    delay(3000);
+    return;
+  }
+
+  http.addHeader(
+    "Content-Type",
+    "application/json"
+  );
+
+  int httpCode = http.POST(jsonData);
+
+  unsigned long roundTripTime =
+    millis() - startTime;
+
+  Serial.print("HTTP Code: ");
+  Serial.println(httpCode);
+
+  Serial.print("ESP32 Round-trip: ");
+  Serial.print(roundTripTime);
+  Serial.println(" ms");
+
+  // Process server response
+  if (httpCode == HTTP_CODE_OK) {
+    String response = http.getString();
+
+    Serial.println("Server response:");
+    Serial.println(response);
+
+    String status = "UNKNOWN";
+
+    if (response.indexOf(
+          "\"status_text\":\"COLD\"") >= 0) {
+      status = "COLD";
+    }
+    else if (response.indexOf(
+               "\"status_text\":\"NORMAL\"") >= 0) {
+      status = "NORMAL";
+    }
+    else if (response.indexOf(
+               "\"status_text\":\"HOT\"") >= 0) {
+      status = "HOT";
+    }
+
+    Serial.print("Temperature status: ");
+    Serial.println(status);
+
+    lcd.clear();
+
+    lcd.setCursor(0, 0);
+    lcd.print("Temp: ");
+    lcd.print(temperature, 1);
+    lcd.write(223);
+    lcd.print("C");
+
+    lcd.setCursor(0, 1);
+    lcd.print("STATUS: ");
+    lcd.print(status);
+
+  } else {
+    Serial.print("HTTP request failed: ");
+    Serial.println(http.errorToString(httpCode));
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("SERVER ERROR");
+
+    lcd.setCursor(0, 1);
+
+    if (httpCode > 0) {
+      lcd.print("HTTP ");
+      lcd.print(httpCode);
+    } else {
+      lcd.print("CONNECTION FAIL");
+    }
+  }
+
+  http.end();
+  delay(3000);
+}
+
+
+Note: client.setInsecure() skips server certificate verification and is suitable only for a test environment. In addition, the program above keeps the original DHT22 reading mechanism using DHTesp; if the sensor still returns TIMEOUT, the system cannot yet complete the data flow from the real hardware.
+
+3.3. Setting Up the Ubuntu Linux Environment
+3.3.1. Creating the Project Directory
+On Ubuntu, create the directory that holds the server source code:
+mkdir -p ~/esp32_server
+cd ~/esp32_server
+
+This directory stores the Flask program and the data-processing components.
+3.3.2. Creating a Python Virtual Environment
+The Python virtual environment is used to isolate the project's dependency libraries and limit the impact on Python packages installed at the system level.
+sudo apt update
+sudo apt install python3 python3-venv python3-pip -y
+
+cd ~/esp32_server
+python3 -m venv venv
+source venv/bin/activate
+
+After successful activation, the terminal prompt usually has the prefix (venv).
+
+3.3.4. Installing Flask
+Install Flask with the command:
+pip install Flask
+
+Check the installed version:
+python -c "import flask; print(flask.__version__)"
+
+Flask is responsible for building the HTTP server and providing the endpoint that receives the JSON data sent by the ESP32-S.
+3.4 Building the Flask Server and IPC Queue
+3.4.1. Processing Architecture Design
+On the Ubuntu server side, processing is divided into two main processes:
+•	Flask process: receives the HTTP POST, validates the JSON data, places the data into the Queue, and returns the result to the device.
+•	Worker process: takes data from the Queue, classifies the temperature, measures the processing time, and passes the result through the output Queue.
+Two Queues are used, one for input data and one for output results. This organization separates Flask's task of receiving requests from the Worker's task of processing data, and at the same time illustrates the mechanism for exchanging data between processes in Linux.
+3.4.2. Implementing the Server Program
+The server.py file is placed in the ~/esp32_server directory. The code below illustrates how to implement Flask together with a Worker process and an IPC Queue. Its content must be checked against the version of the program actually used during testing to ensure consistency between the report and the system.
+from flask import Flask, request, jsonify
+from multiprocessing import Process, Queue
+from queue import Empty
+import os
+import time
+import resource
+
+app = Flask(__name__)
+
+input_queue = Queue()
+output_queue = Queue()
+
+
+def worker_process(input_queue, output_queue):
+    worker_pid = os.getpid()
+
+    print(
+        f"[WORKER] Started. PID = {worker_pid}",
+        flush=True
+    )
+
+    while True:
+        data = input_queue.get()
+
+        if data is None:
+            break
+
+        start_time = time.perf_counter()
+
+        temperature = float(data["temperature"])
+        humidity = float(data["humidity"])
+
+        print("[WORKER] Received data:", flush=True)
+        print(
+            f"[WORKER] Temperature = {temperature} C",
+            flush=True
+        )
+        print(
+            f"[WORKER] Humidity = {humidity} %",
+            flush=True
+        )
+
+        if temperature < 18:
+            status = "COLD"
+        elif temperature < 30:
+            status = "NORMAL"
+        else:
+            status = "HOT"
+
+        end_time = time.perf_counter()
+
+        processing_time_ms = (
+            end_time - start_time
+        ) * 1000
+
+        memory_usage_mb = (
+            resource.getrusage(
+                resource.RUSAGE_SELF
+            ).ru_maxrss / 1024
+        )
+
+        result = {
+            "temperature": temperature,
+            "humidity": humidity,
+            "status": status,
+            "worker_processing_time_ms":
+                processing_time_ms,
+            "worker_pid": worker_pid,
+            "worker_memory_mb": memory_usage_mb
+        }
+
+        output_queue.put(result)
+
+        print(
+            f"[WORKER] Decision: {status}",
+            flush=True
+        )
+        print(
+            "[PERFORMANCE] Worker processing: "
+            f"{processing_time_ms:.3f} ms",
+            flush=True
+        )
+
+
+@app.route("/", methods=["GET"])
+def home():
+    return "ESP32 Server is running!", 200
+
+
+@app.route("/data", methods=["POST"])
+def receive_data():
+    request_start = time.perf_counter()
+
+    data = request.get_json(silent=True)
+
+    if not isinstance(data, dict):
+        return jsonify({
+            "status": "ERROR",
+            "message": "Invalid JSON"
+        }), 400
+
+    try:
+        temperature = float(data["temperature"])
+        humidity = float(data["humidity"])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({
+            "status": "ERROR",
+            "message": "Missing or invalid sensor data"
+        }), 400
+
+    print("[FLASK] Received data from ESP32:")
+    print(data, flush=True)
+
+    # Send sensor data to Worker via IPC
+    input_queue.put({
+        "temperature": temperature,
+        "humidity": humidity
+    })
+
+    print(
+        "[FLASK] Data sent to Worker via IPC Queue",
+        flush=True
+    )
+
+    try:
+        result = output_queue.get(timeout=5)
+    except Empty:
+        return jsonify({
+            "status": "ERROR",
+            "message": "Worker timeout"
+        }), 504
+
+    server_latency_ms = (
+        time.perf_counter() - request_start
+    ) * 1000
+
+    response_data = {
+        "status": "OK",
+        "temperature": result["temperature"],
+        "humidity": result["humidity"],
+        "status_text": result["status"],
+        "worker_processing_time_ms":
+            result["worker_processing_time_ms"],
+        "server_latency_ms": server_latency_ms,
+        "worker_pid": result["worker_pid"],
+        "worker_memory_mb": result["worker_memory_mb"]
+    }
+
+    print("[FLASK] Sending response to ESP32:")
+    print(response_data, flush=True)
+
+    return jsonify(response_data), 200
+
+
+if __name__ == "__main__":
+    worker = Process(
+        target=worker_process,
+        args=(input_queue, output_queue)
+    )
+
+    worker.start()
+
+    print("==============================")
+    print("Linux ESP32 IoT Server")
+    print("==============================")
+    print(f"[MAIN] Flask PID: {os.getpid()}")
+    print(f"[MAIN] Worker PID: {worker.pid}")
+    print("[MAIN] IPC Queues created")
+    print("[MAIN] Starting Flask...")
+
+    try:
+        app.run(
+            host="0.0.0.0",
+            port=5000,
+            debug=False,
+            use_reloader=False
+        )
+    finally:
+        input_queue.put(None)
+        worker.join(timeout=3)
+
+        if worker.is_alive():
+            worker.terminate()
+            worker.join()
+
+
+Important note on IPC: the example above illustrates data transfer using two Queues. When the system is extended to handle multiple concurrent requests, a mechanism is needed to match results to the correct request, for example by using a request_id, because several requests may be waiting for a result from the same output Queue. In the basic test with a single ESP32 sending sequentially, only one request should run at a time.
+3.4.3. Starting the Flask Server
+In the Ubuntu terminal:
+cd ~/esp32_server
+source venv/bin/activate
+python3 -u server.py
+
+The -u parameter tells Python to emit its output unbuffered, so that status messages and processing results are updated promptly in the terminal.
+After a successful start, the Flask server accepts requests on port 5000. The address 0.0.0.0 allows the server to accept connections on the network interfaces of the Ubuntu machine, but it does not automatically make the server reachable from the Internet.
+
+3.5. Testing the Flask Server Locally
+Before integrating with the ESP32-S, the Flask server is tested independently to confirm its ability to receive requests and process data in the local environment.
+Step 1. Check the endpoint
+In another terminal window on Ubuntu, run the endpoint check command:
+curl http://127.0.0.1:5000/
+
+If the server is working, the expected result is:
+ESP32 Server is running!
+
+Step 2. Send test data
+Run the following test command:
+curl -X POST http://127.0.0.1:5000/data \
+  -H "Content-Type: application/json" \
+  -d '{"temperature":40.9,"humidity":40.0}'
+
+With the reference program in section 10.5.2, a temperature of 40.9°C will be classified as HOT. The JSON response will contain the status, temperature, humidity, and the performance figures measured by the server.
+Step 3. Observe the logs
+In the terminal where the server is running, check the following information:
+•	Flask has received the JSON data.
+•	The data has been placed into the IPC Queue.
+•	The Worker process has received the data and made a decision.
+•	Flask has received the result and returned the HTTP response.
+Testing on the local network verifies the functionality of Flask and the Worker before the factors related to the Internet connection and the tunnel are added to the evaluation.
+
+3.6. Setting Up the Cloudflare Quick Tunnel
+3.6.1. Purpose of Use
+The Ubuntu server is run in a VirtualBox virtual machine environment. During the testing stage, a Cloudflare Quick Tunnel is used to provide a public HTTPS URL that forwards requests to the Flask server running locally on port 5000. This approach lets the ESP32-S reach the server without manually configuring port forwarding on the router.
+3.6.2. Starting the Tunnel
+Keep the Flask server running on port 5000. Open a second Ubuntu terminal and run:
+cloudflared tunnel --url http://127.0.0.1:5000
+
+After the tunnel is created successfully, the terminal will display a URL in the form:
+https://<ten-tunnel>.trycloudflare.com
+
+The Quick Tunnel URL is issued automatically and may change when a new session is created. Therefore, the serverURL variable in the Arduino program must be updated to match the current URL to ensure that the device sends data to the correct endpoint.
+3.6.3. Checking the Tunnel
+The root URL of the tunnel is checked with a browser or another terminal. If the / endpoint is configured correctly, the server will return a message saying that it is running.
+You can try sending a POST through the tunnel:
+curl -X POST \
+  https://<ten-tunnel>.trycloudflare.com/data \
+  -H "Content-Type: application/json" \
+  -d '{"temperature":40.9,"humidity":40.0}'
+
+If a valid JSON response is received, the path from the tunnel to Flask is working.
+The Cloudflare Quick Tunnel is suitable for development and trial demonstrations. For a long-term deployment, a stable tunnel configuration, an authentication mechanism, and appropriate service protection measures should be considered.
+
+3.7. Integrating the ESP32 with the Ubuntu Server
+After the individual tests are completed, the hardware and software components are connected to evaluate the system's end-to-end operation.
+Step 1. Prepare the ESP32
+Update the SSID, the Wi-Fi password, and the Cloudflare URL in the Arduino program. Select the correct board and connection port, and upload the program.
+Step 2. Start the components on Ubuntu
+The first terminal is used to start the Flask server:
+cd ~/esp32_server
+source venv/bin/activate
+python3 -u server.py
+
+The second terminal is used to start the Cloudflare Quick Tunnel:
+cloudflared tunnel --url http://127.0.0.1:5000
+
+Make sure the tunnel URL in use matches the serverURL in the Arduino program.
+Step 3. Observe the Serial Monitor
+Select a speed of 115200 baud. When the components work correctly, the Serial Monitor shows the Wi-Fi status, the temperature and humidity data, the JSON content that is sent, the HTTP code, and the response from the server.
+Step 4. Observe the LCD
+When the sensor reads valid data, the LCD displays the temperature and humidity. After a successful HTTP response is received, the screen shows the COLD, NORMAL, or HOT status returned by the Worker.
+Step 5. Cross-check the Ubuntu logs
+The Flask and Worker logs are cross-checked to confirm the steps of receiving the data, passing it through the IPC Queue, processing it in the Worker, and generating the response for the ESP32-S.
+
+3.8. Performance Measurement
+To evaluate the operation of the system, the program records the following main performance metrics:
+•	Worker processing time: the time to process the data in the Worker, measured with time.perf_counter().
+•	Flask + IPC latency: the time from when request processing begins until the Worker's result is received and the response is prepared, as measured in the program.
+•	Worker memory: the peak memory value of the process according to resource.getrusage().
+•	ESP32 round-trip time: the time from when the HTTP POST starts being sent until the response code is received, measured with millis().
+The metrics above are measured over different scopes and cannot be used interchangeably. The RTT measured at the ESP32-S includes the time to transmit data over Wi-Fi and the Internet, the latency of the Cloudflare Tunnel, the HTTPS setup process, the processing time at the server, and the time to transmit the response back to the device. Therefore, the RTT does not reflect the processing cost of IPC on Linux on its own.
+To ensure reliability, the measurements must be repeated many times under the same test conditions. Failed measurements should be recorded and analyzed separately; for valid samples, the mean, minimum, maximum, and standard deviation should be calculated. Performance comparisons between architectures must be based on a sufficiently large amount of data and the same measurement method, avoiding conclusions drawn from only a few RTT samples.
+
+3.9. Deployment Results and Limitations
+ 
+During testing, the Ubuntu-side components, namely Flask, the Worker process, and the IPC Queue, were checked. In one trial, Flask received data with a temperature of 28.5°C; the Worker classified this value as NORMAL, and Flask then returned an HTTP 200 response with the processing result and the performance figures. This result confirms that the server-side processing flow worked in that trial, but it is not enough to assert that the entire hardware system has operated stably.
+However, if testing on the real hardware still records the TIMEOUT status when reading the DHT22, this indicates that the ESP32-S did not receive valid sensor data in that trial. The items that need further checking include the DATA line connection, the power supply, the module's pull-up resistor requirement, and the compatibility between the library and the sensor in use.
+The test results on Ubuntu, in the simulated environment, and on the real hardware must be clearly distinguished in the report. Only when the data flow from the sensor, through the ESP32-S and the Linux server, and back to the device has been fully verified on real hardware is there a basis for concluding that the system has worked completely.
+
+3.10. Conclusion 
+This chapter presents the process of deploying an IoT system using the ESP32-S and the DHT22 sensor, from designing the hardware connections and developing the embedded program to setting up the Ubuntu Linux environment, building the Flask server, and implementing the IPC Queue mechanism between Flask and the Worker process. A Cloudflare Quick Tunnel was used during the testing stage to create an HTTPS connection between the device and the server.
+This architecture demonstrates the combination of embedded programming and Linux system programming mechanisms. The metrics on processing time, latency, and memory usage provide an initial basis for evaluating the operation of the system. 
 
